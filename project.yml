@@ -256,3 +256,13 @@ targets:
     templates: [CommandLineTool]
     sources:
       - Tools/EditCheck
+
+  # Opens files in Hancom Office HWP Viewer and reads its windows through the
+  # Accessibility API (needs the terminal to have Accessibility access).
+  hwpmac-viewer-check:
+    type: tool
+    platform: macOS
+    sources:
+      - Tools/ViewerCheck
+    scheme: {}
+
