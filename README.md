@@ -131,3 +131,14 @@ python3 scripts/oracle-bundle.py judge build/oracle-bundle result.tsv
   10초쯤 걸릴 수 있습니다.
 - 자동 저장과 버전 기록을 켜지 않았습니다(원본 덮어쓰기를 확인받기 위해).
 - NSTextInputClient의 범위는 문단 안 UTF-16 위치로, BMP 밖 글자에서는 근사치입니다.
+
+## 라이선스
+
+이 저장소의 코드는 [PolyForm Noncommercial License 1.0.0](LICENSE.md)을 따릅니다. 개인 사용, 연구, 교육,
+비영리 단체 등 **비상업적 목적**으로는 사용, 수정, 배포할 수 있고, 상업적으로 쓰려면 별도 허락이 필요합니다.
+OSI가 승인한 오픈소스 라이선스가 아니라 소스 공개(source-available) 라이선스입니다.
+
+- 문서 엔진 rhwp(`third_party/rhwp`)는 MIT License이며 그 저장소의 라이선스를 따릅니다.
+- `research/`의 원본 사본(논문, 웹페이지 등)은 저작권 때문에 저장소에 넣지 않았습니다. 출처 URL과 인용문,
+  해시는 기록에 남아 있습니다.
+

@@ -8,3 +8,5 @@ build-logs/
 corpus/
 # Generated from project.yml by `xcodegen generate`
 HwpMac.xcodeproj/
+# Copies of third-party sources made by the research ledger; not redistributable.
+research/*/snapshots/
