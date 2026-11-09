@@ -1,0 +1,10 @@
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.build/
+build-logs/
+corpus/
+# Generated from project.yml by `xcodegen generate`
+HwpMac.xcodeproj/

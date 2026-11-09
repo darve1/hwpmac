@@ -1,0 +1,223 @@
+{
+  "schema_version": 3,
+  "mode": "literature",
+  "routes": [
+    "literature",
+    "technical"
+  ],
+  "question": "macOS 네이티브 HWP/HWPX 편집기 개발 0단계: 공식 스펙·라이선스, 기존 구현의 상태, 첫 편집 단계, 통과 기준 수치의 근거는 무엇인가?",
+  "origins": [
+    {
+      "origin_id": "hancom-spec",
+      "kind": "disclosure",
+      "label": "Hancom HWP/OWPML format disclosure (download center page, its script, HWP 5.0 spec PDF)",
+      "source_ids": [
+        "hancom-dl",
+        "hancom-js",
+        "hwp5-spec"
+      ],
+      "rationale": "All published by Hancom as one format-disclosure package",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:09Z"
+    },
+    {
+      "origin_id": "hancom-mac-product",
+      "kind": "disclosure",
+      "label": "Hancom product pages for 한글 for macOS",
+      "source_ids": [
+        "hancom-mac",
+        "hancom-dlcenter"
+      ],
+      "rationale": "Hancom's own product/download pages",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:09Z"
+    },
+    {
+      "origin_id": "hancom-oss",
+      "kind": "implementation",
+      "label": "Hancom open-source repos (hwpx-owpml-model, dvc)",
+      "source_ids": [
+        "hancom-hwpx-owpml-model",
+        "hancom-dvc"
+      ],
+      "rationale": "Both published by hancom-io org; dvc builds on owpml-model",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:09Z"
+    },
+    {
+      "origin_id": "kssn-standard",
+      "kind": "disclosure",
+      "label": "KSSN catalog entry for KS X 6101",
+      "source_ids": [
+        "kssn-6101"
+      ],
+      "rationale": "Korean Standards Association catalog",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:09Z"
+    },
+    {
+      "origin_id": "hop",
+      "kind": "implementation",
+      "label": "HOP project (README, DEVELOPMENT.md, GitHub metadata)",
+      "source_ids": [
+        "hop-readme",
+        "hop-dev",
+        "hop-api",
+        "hop-rel"
+      ],
+      "rationale": "All from the golbin/hop repository",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:09Z"
+    },
+    {
+      "origin_id": "hop-user-73",
+      "kind": "event",
+      "label": "HOP issue #73 user report (Windows, HOP 0.3.1)",
+      "source_ids": [
+        "hop-i73"
+      ],
+      "rationale": "Single user report, separate observer from HOP maintainers",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:10Z"
+    },
+    {
+      "origin_id": "neolord0",
+      "kind": "implementation",
+      "label": "hwplib and hwpxlib (same author)",
+      "source_ids": [
+        "hwplib-readme",
+        "hwpxlib-readme",
+        "hwplib-api",
+        "hwpxlib-api"
+      ],
+      "rationale": "Same author and shared docs",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:10Z"
+    },
+    {
+      "origin_id": "h2orestart",
+      "kind": "implementation",
+      "label": "H2Orestart LibreOffice extension",
+      "source_ids": [
+        "h2o-readme",
+        "h2o-api"
+      ],
+      "rationale": "Same repository",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:10Z"
+    },
+    {
+      "origin_id": "pyhwp",
+      "kind": "implementation",
+      "label": "pyhwp",
+      "source_ids": [
+        "pyhwp-readme",
+        "pyhwp-api"
+      ],
+      "rationale": "Same repository",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:10Z"
+    },
+    {
+      "origin_id": "hwpjs",
+      "kind": "implementation",
+      "label": "hwp.js",
+      "source_ids": [
+        "hwpjs-readme",
+        "hwpjs-api"
+      ],
+      "rationale": "Same repository",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:10Z"
+    },
+    {
+      "origin_id": "hwprs",
+      "kind": "implementation",
+      "label": "hwp-rs",
+      "source_ids": [
+        "hwprs-api"
+      ],
+      "rationale": "Same repository",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:10Z"
+    },
+    {
+      "origin_id": "ossfuzz",
+      "kind": "disclosure",
+      "label": "OSS-Fuzz documentation (ideal integration, FAQ)",
+      "source_ids": [
+        "ossfuzz-ideal",
+        "ossfuzz-faq"
+      ],
+      "rationale": "Same documentation site by Google OSS-Fuzz",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:11Z"
+    },
+    {
+      "origin_id": "klees2018",
+      "kind": "study",
+      "label": "Klees et al. 2018, Evaluating Fuzz Testing",
+      "source_ids": [
+        "klees2018"
+      ],
+      "rationale": "One paper",
+      "reviewer": "agent",
+      "design": "survey of 32 fuzzing papers + experiments",
+      "checked_at": "2026-11-09T06:23:11Z"
+    },
+    {
+      "origin_id": "kisc2019",
+      "kind": "study",
+      "label": "Han et al. 2019, JKIISC 29(4) — file-format conversion for secure transfer",
+      "source_ids": [
+        "kisc2019-docmal"
+      ],
+      "rationale": "One paper",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:23:11Z"
+    },
+    {
+      "origin_id": "gnumeric",
+      "kind": "disclosure",
+      "label": "Gnumeric developer blog on round-trip tests",
+      "source_ids": [
+        "gnumeric-rt"
+      ],
+      "rationale": "One blog post",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:25:44Z"
+    },
+    {
+      "origin_id": "msrc",
+      "kind": "disclosure",
+      "label": "MSRC blog (unreadable)",
+      "source_ids": [
+        "msrc-office-sdl"
+      ],
+      "rationale": "One page",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:25:44Z"
+    },
+    {
+      "origin_id": "rhwp",
+      "kind": "implementation",
+      "label": "rhwp project (README, wiki, fuzz README, issues, GitHub metadata)",
+      "source_ids": [
+        "rhwp-readme",
+        "rhwp-wiki-pdf",
+        "rhwp-wiki-errata",
+        "rhwp-wiki-legal",
+        "rhwp-fuzz",
+        "rhwp-i8172",
+        "rhwp-i2740",
+        "rhwp-api",
+        "rhwp-rel",
+        "rhwp-i4677",
+        "rhwp-i4488"
+      ],
+      "rationale": "All authored within the rhwp project by its maintainer and contributors",
+      "reviewer": "agent",
+      "checked_at": "2026-11-09T06:28:15Z"
+    }
+  ]
+}

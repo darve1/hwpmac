@@ -1,0 +1,87 @@
+name: HwpMac
+options:
+  bundleIdPrefix: local.hwpmac
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+packages:
+  Rhwp:
+    path: third_party/rhwp/bindings/swift
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    # Static rhwp FFI staged by scripts/build-native.sh, plus the system
+    # libraries it needs (from `cargo rustc ... --print native-static-libs`).
+    LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/build/native/lib
+    OTHER_LDFLAGS: -lc++ -framework ApplicationServices -framework CoreFoundation -liconv
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+  HwpMac:
+    type: application
+    platform: macOS
+    sources:
+      - App/Sources
+    dependencies:
+      - package: Rhwp
+        product: Rhwp
+    entitlements:
+      path: App/HwpMac.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: HwpMac
+        LSApplicationCategoryType: public.app-category.productivity
+        NSHumanReadableCopyright: 본 제품은 한글과컴퓨터의 한글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: HWP 문서
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            NSDocumentClass: $(PRODUCT_MODULE_NAME).HwpDocument
+            LSItemContentTypes:
+              - com.hancom.hwp
+              - com.haansoft.hancomofficeviewer.mac.hwp
+          - CFBundleTypeName: HWPX 문서
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            NSDocumentClass: $(PRODUCT_MODULE_NAME).HwpDocument
+            LSItemContentTypes:
+              - com.hancom.hwpx
+              - com.haansoft.hancomofficeviewer.mac.hwpx
+        # Imported, not exported: Hancom owns these formats. The identifiers
+        # follow other HWP apps (e.g. HOP); Hancom's own UTI is unverified.
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.hancom.hwp
+            UTTypeDescription: HWP 문서
+            UTTypeConformsTo: [public.data, public.content]
+            UTTypeTagSpecification:
+              public.filename-extension: [hwp]
+              public.mime-type: [application/x-hwp]
+          - UTTypeIdentifier: com.hancom.hwpx
+            UTTypeDescription: HWPX 문서
+            UTTypeConformsTo: [public.data, public.content]
+            UTTypeTagSpecification:
+              public.filename-extension: [hwpx]
+              public.mime-type: [application/vnd.hancom.hwpx]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.hwpmac.HwpMac
+    scheme: {}
+
+  hwpmac-render-snapshot:
+    type: tool
+    platform: macOS
+    sources:
+      - App/Sources/Engine
+      - Tools/RenderSnapshot
+    dependencies:
+      - package: Rhwp
+        product: Rhwp
+    scheme: {}
