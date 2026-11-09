@@ -1,0 +1,86 @@
+{
+ "documents": 13,
+ "runsEach": 5,
+ "pooledP50": 0.264468917,
+ "pooledP95": 1.087424042,
+ "perDocument": [
+  {
+   "input": "2025 행정업무운영 편람(최종).hwp",
+   "pages": 383,
+   "p50": 1.059754625,
+   "max": 1.066029875
+  },
+  {
+   "input": "2025 행정업무운영 편람(최종).hwpx",
+   "pages": 383,
+   "p50": 1.089686625,
+   "max": 1.097360125
+  },
+  {
+   "input": "80168_regulatory_analysis.hwp",
+   "pages": 157,
+   "p50": 0.176524291,
+   "max": 0.180282167
+  },
+  {
+   "input": "hwp-3.0-HWPML.hwp",
+   "pages": 122,
+   "p50": 0.182953458,
+   "max": 0.183356875
+  },
+  {
+   "input": "hwp3-sample10.hwp",
+   "pages": 763,
+   "p50": 0.485529125,
+   "max": 0.491076334
+  },
+  {
+   "input": "hwp3-sample11-hwp5.hwp",
+   "pages": 151,
+   "p50": 0.185298917,
+   "max": 0.19464075
+  },
+  {
+   "input": "hwp3-sample11-hwpx.hwpx",
+   "pages": 151,
+   "p50": 0.206999417,
+   "max": 0.213788125
+  },
+  {
+   "input": "hwp3-sample11.hwp",
+   "pages": 151,
+   "p50": 0.183043708,
+   "max": 0.191382417
+  },
+  {
+   "input": "hwpspec.hwp",
+   "pages": 178,
+   "p50": 0.240130125,
+   "max": 0.2466225
+  },
+  {
+   "input": "issue1949_giant_cell_nested_tables_perf.hwp",
+   "pages": 115,
+   "p50": 0.365236375,
+   "max": 0.376385042
+  },
+  {
+   "input": "issue1949_giant_cell_nested_tables_perf.hwpx",
+   "pages": 115,
+   "p50": 0.264468917,
+   "max": 0.266705292
+  },
+  {
+   "input": "정책연구용역사업 중간진도보고서(살아있는 간장 기증자의 의학적 선별기준 연구).hwp",
+   "pages": 215,
+   "p50": 0.291391,
+   "max": 0.29291
+  },
+  {
+   "input": "정책연구용역사업 중간진도보고서(살아있는 간장 기증자의 의학적 선별기준 연구).hwpx",
+   "pages": 215,
+   "p50": 0.449893875,
+   "max": 0.451680417
+  }
+ ]
+}

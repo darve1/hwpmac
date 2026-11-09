@@ -12,15 +12,50 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    # Static rhwp FFI staged by scripts/build-native.sh, plus the system
-    # libraries it needs (from `cargo rustc ... --print native-static-libs`).
+    # rhwp FFI dylib staged by scripts/build-native.sh. The app embeds it in
+    # Contents/Frameworks; its extensions and the test bundle use that copy.
     LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/build/native/lib
-    OTHER_LDFLAGS: -lc++ -framework ApplicationServices -framework CoreFoundation -liconv
     # The staged rhwp library is built for Apple silicon only.
     ARCHS: arm64
+    # Ad-hoc signing for local builds. The hardened runtime stays off here:
+    # it rejects the separately signed rhwp dylib when nothing carries a team
+    # ID. Distribution builds sign with a Developer ID (same team for app,
+    # extensions and dylib) and turn it on for notarization; see README.
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_STYLE: Manual
-    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_HARDENED_RUNTIME: NO
+
+# Quick Look and Spotlight extensions: sandboxed, sharing the app's
+# embedded rhwp dylib.
+targetTemplates:
+  EngineExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - App/Sources/Engine
+    dependencies:
+      - package: Rhwp
+        product: Rhwp
+    entitlements:
+      path: Extensions/${target_name}/${target_name}.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+    settings:
+      base:
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../../../../Frameworks"
+
+  CommandLineTool:
+    type: tool
+    platform: macOS
+    sources:
+      - App/Sources/Engine
+    dependencies:
+      - package: Rhwp
+        product: Rhwp
+    settings:
+      base:
+        LD_RUNPATH_SEARCH_PATHS: $(PROJECT_DIR)/build/native/lib
+    scheme: {}
 
 targets:
   HwpMac:
@@ -28,9 +63,17 @@ targets:
     platform: macOS
     sources:
       - App/Sources
+      - path: App/Resources
+        buildPhase: resources
     dependencies:
       - package: Rhwp
         product: Rhwp
+      - framework: build/native/lib/librhwp_native_ffi.dylib
+        embed: true
+        codeSign: true
+      - target: QuickLookPreview
+      - target: QuickLookThumbnail
+      - target: SpotlightImporter
     entitlements:
       path: App/HwpMac.entitlements
       properties:
@@ -75,12 +118,70 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.hwpmac.HwpMac
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
     scheme:
       testTargets:
         - HwpMacTests
 
-  # Hosted in the app so it uses the app's single copy of the static rhwp
-  # library; linking Rhwp again here would duplicate its native state.
+  QuickLookPreview:
+    templates: [EngineExtension]
+    sources:
+      - Extensions/QuickLookPreview
+    info:
+      path: Extensions/QuickLookPreview/Info.plist
+      properties:
+        CFBundleDisplayName: HwpMac 미리보기
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.quicklook.preview
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PreviewProvider
+          NSExtensionAttributes:
+            QLIsDataBasedPreview: true
+            QLSupportsSearchableItems: false
+            QLSupportedContentTypes: &quickLookTypes
+              - com.hancom.hwp
+              - com.hancom.hwpx
+              - com.haansoft.hancomofficeviewer.mac.hwp
+              - com.haansoft.hancomofficeviewer.mac.hwpx
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.hwpmac.HwpMac.QuickLookPreview
+
+  QuickLookThumbnail:
+    templates: [EngineExtension]
+    sources:
+      - Extensions/QuickLookThumbnail
+    info:
+      path: Extensions/QuickLookThumbnail/Info.plist
+      properties:
+        CFBundleDisplayName: HwpMac 썸네일
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.quicklook.thumbnail
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ThumbnailProvider
+          NSExtensionAttributes:
+            QLThumbnailMinimumDimension: 0
+            QLSupportedContentTypes: *quickLookTypes
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.hwpmac.HwpMac.QuickLookThumbnail
+
+  SpotlightImporter:
+    templates: [EngineExtension]
+    sources:
+      - Extensions/SpotlightImporter
+    info:
+      path: Extensions/SpotlightImporter/Info.plist
+      properties:
+        CFBundleDisplayName: HwpMac Spotlight
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.spotlight.import
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SpotlightImporter
+          NSExtensionAttributes:
+            CSSupportedContentTypes: *quickLookTypes
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.hwpmac.HwpMac.SpotlightImporter
+
+  # Hosted in the app, so it uses the app's copy of the rhwp library.
   HwpMacTests:
     type: bundle.unit-test
     platform: macOS
@@ -95,34 +196,16 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
 
   hwpmac-render-snapshot:
-    type: tool
-    platform: macOS
+    templates: [CommandLineTool]
     sources:
-      - App/Sources/Engine
       - Tools/RenderSnapshot
-    dependencies:
-      - package: Rhwp
-        product: Rhwp
-    scheme: {}
 
   hwpmac-latency:
-    type: tool
-    platform: macOS
+    templates: [CommandLineTool]
     sources:
-      - App/Sources/Engine
       - Tools/Latency
-    dependencies:
-      - package: Rhwp
-        product: Rhwp
-    scheme: {}
 
   hwpmac-edit-check:
-    type: tool
-    platform: macOS
+    templates: [CommandLineTool]
     sources:
-      - App/Sources/Engine
       - Tools/EditCheck
-    dependencies:
-      - package: Rhwp
-        product: Rhwp
-    scheme: {}

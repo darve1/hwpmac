@@ -4,12 +4,29 @@
 // with timings as JSON on stdout. Not sandboxed, so it can read any corpus file.
 //
 // usage: hwpmac-render-snapshot <input.hwp|hwpx> <page> <scale> <output.png>
+//        hwpmac-render-snapshot <input.hwp|hwpx> pdf <max-pages> <output.pdf>
+//
+// The pdf form runs PageRenderer.pdf, the code behind the Quick Look preview.
 
 import Foundation
 import ImageIO
+import PDFKit
 import UniformTypeIdentifiers
 
 let arguments = CommandLine.arguments
+if arguments.count == 5, arguments[2] == "pdf", let maxPages = Int(arguments[3]) {
+    do {
+        let start = Date()
+        let pdf = try PageRenderer.pdf(from: Data(contentsOf: URL(fileURLWithPath: arguments[1])), maxPages: maxPages, scale: 2)
+        try pdf.data.write(to: URL(fileURLWithPath: arguments[4]))
+        let pages = PDFDocument(data: pdf.data)?.pageCount ?? -1
+        print("{\"ok\":true,\"pdfPages\":\(pages),\"bytes\":\(pdf.data.count),\"seconds\":\(Date().timeIntervalSince(start))}")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("{\"ok\":false,\"error\":\"\(error)\"}\n".utf8))
+        exit(1)
+    }
+}
 guard arguments.count == 5, let page = Int(arguments[2]), let scale = Double(arguments[3]) else {
     FileHandle.standardError.write(Data("usage: hwpmac-render-snapshot <input> <page> <scale> <output.png>\n".utf8))
     exit(64)

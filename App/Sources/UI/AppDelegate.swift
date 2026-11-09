@@ -28,6 +28,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ])
     }
 
+    @objc func showHelp(_ sender: Any?) {
+        HelpWindowController.shared.showWindow(sender)
+    }
+
     private func makeMainMenu() -> NSMenu {
         let appName = ProcessInfo.processInfo.processName
         let mainMenu = NSMenu()
@@ -79,6 +83,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowMenu.addItem(withTitle: "확대/축소", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         addSubmenu(windowMenu, titled: "윈도우", to: mainMenu)
         NSApp.windowsMenu = windowMenu
+
+        let helpMenu = NSMenu(title: "도움말")
+        helpMenu.addItem(withTitle: "\(appName) 도움말", action: #selector(showHelp(_:)), keyEquivalent: "?")
+        addSubmenu(helpMenu, titled: "도움말", to: mainMenu)
+        NSApp.helpMenu = helpMenu
 
         return mainMenu
     }
