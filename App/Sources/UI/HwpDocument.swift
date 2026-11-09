@@ -11,7 +11,7 @@ final class HwpDocument: NSDocument {
     private nonisolated static let hwpType = "com.hancom.hwp"
     private nonisolated static let hwpxType = "com.hancom.hwpx"
 
-    private(set) var engine: DocumentEngine?
+    private(set) var engine: (any DocumentEngineClient)?
     private var pendingSave: PreparedSave?
     /// The first in-place overwrite of the opened file asks for confirmation,
     /// because saved files are not yet verified in 한글.
@@ -27,9 +27,39 @@ final class HwpDocument: NSDocument {
     }
 
     // Documents are read on the main thread (concurrent reading is off by default).
+    // The engine runs in the sandboxed EngineService XPC process unless
+    // HWPMAC_IN_PROCESS_ENGINE=1 (for debugging the engine in the app).
     override func read(from data: Data, ofType typeName: String) throws {
         try MainActor.assumeIsolated {
-            engine = try DocumentEngine(data: data, name: "rhwp engine")
+            if ProcessInfo.processInfo.environment["HWPMAC_IN_PROCESS_ENGINE"] == "1" {
+                engine = try DocumentEngine(data: data, name: "rhwp engine")
+            } else {
+                let remote = try RemoteDocumentEngine(data: data)
+                remote.onDisconnect = { [weak self] in self?.engineStopped() }
+                engine = remote
+            }
+        }
+    }
+
+    /// The engine process exited (a crash or a kill): its unsaved edits are
+    /// gone, so say so and reopen the document from disk.
+    private func engineStopped() {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "문서 엔진이 멈췄습니다"
+        alert.informativeText = "마지막으로 저장한 뒤의 편집은 사라졌을 수 있습니다. 문서를 디스크에서 다시 엽니다."
+        let reopen = { [self] in
+            let url = fileURL
+            close()
+            if let url {
+                NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
+            }
+        }
+        if let window = windowForSheet {
+            alert.beginSheetModal(for: window) { _ in reopen() }
+        } else {
+            alert.runModal()
+            reopen()
         }
     }
 
@@ -85,25 +115,25 @@ final class HwpDocument: NSDocument {
             let prepared: PreparedSave
             do {
                 // Runs after every edit already submitted.
-                prepared = try engine.sync { try $0.session.prepareSave(format) }
+                prepared = try engine.prepareSave(format)
             } catch {
                 return completionHandler(error)
             }
             confirmLosses(prepared.report) { [self] accepted in
                 guard accepted else {
-                    _ = try? engine.sync { try $0.session.cancelSave(prepared.token) }
+                    try? engine.cancelSave(prepared.token)
                     return completionHandler(CocoaError(.userCancelled))
                 }
                 pendingSave = prepared
                 writeWithNSDocument(to: url, ofType: typeName, for: saveOperation) { [self] error in
                     pendingSave = nil
                     if let error {
-                        _ = try? engine.sync { try $0.session.cancelSave(prepared.token) }
+                        try? engine.cancelSave(prepared.token)
                         return completionHandler(error)
                     }
                     let stillDirty: Bool
                     do {
-                        stillDirty = try engine.sync { try $0.session.acknowledgeSave(prepared.token) }
+                        stillDirty = try engine.acknowledgeSave(prepared.token)
                     } catch {
                         return completionHandler(error)
                     }

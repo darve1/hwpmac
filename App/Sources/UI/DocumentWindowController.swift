@@ -6,7 +6,7 @@ final class DocumentWindowController: NSWindowController {
     private let scrollView = NSScrollView()
     private let pagesView: PagesView
 
-    init(engine: DocumentEngine) {
+    init(engine: any DocumentEngineClient) {
         pagesView = PagesView(engine: engine)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 1000),

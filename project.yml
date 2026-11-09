@@ -74,6 +74,7 @@ targets:
       - target: QuickLookPreview
       - target: QuickLookThumbnail
       - target: SpotlightImporter
+      - target: EngineService
     entitlements:
       path: App/HwpMac.entitlements
       properties:
@@ -180,6 +181,32 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.hwpmac.HwpMac.SpotlightImporter
+
+  # Parses and edits documents in a sandbox with no file access; the app
+  # sends document bytes over XPC (App/Sources/Engine/EngineXPC.swift).
+  EngineService:
+    type: xpc-service
+    platform: macOS
+    sources:
+      - App/Sources/Engine
+      - Services/EngineService
+    dependencies:
+      - package: Rhwp
+        product: Rhwp
+    entitlements:
+      path: Services/EngineService/EngineService.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+    info:
+      path: Services/EngineService/Info.plist
+      properties:
+        CFBundleDisplayName: HwpMac Engine
+        XPCService:
+          ServiceType: Application
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.hwpmac.HwpMac.EngineService
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../../../../Frameworks"
 
   # Hosted in the app, so it uses the app's copy of the rhwp library.
   HwpMacTests:

@@ -12,8 +12,8 @@ import Rhwp
 /// 383-page document. Operations submitted while the engine is busy are
 /// coalesced into one batch: consecutive text is inserted at once and only
 /// the latest composition preview or drag selection is applied.
-final class DocumentEngine: @unchecked Sendable {
-    enum Operation: Sendable {
+final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
+    enum Operation: Codable, Sendable {
         case click(page: Int, x: Double, y: Double, extendSelection: Bool)
         case drag(page: Int, x: Double, y: Double)
         case select(TextSelection)
@@ -46,7 +46,7 @@ final class DocumentEngine: @unchecked Sendable {
     }
 
     /// The editing state after a batch, with geometry in page layout pixels.
-    struct Snapshot: Sendable {
+    struct Snapshot: Codable, Sendable {
         var revision: UInt64
         var selection: TextSelection?
         var markedSelection: TextSelection?
@@ -63,6 +63,8 @@ final class DocumentEngine: @unchecked Sendable {
         var failure: String?
         /// The last submitted operation this snapshot includes (see `submit`).
         var appliedSequence: UInt64 = 0
+        /// Whether the last batch that changed the document was slow.
+        var engineIsSlow = false
     }
 
     let initialPageSizes: [CGSize]
@@ -128,8 +130,10 @@ final class DocumentEngine: @unchecked Sendable {
     var isSlow: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return lastEditBatchSeconds > 0.15
+        return lastEditBatchSeconds > Self.slowBatchSeconds
     }
+
+    private static let slowBatchSeconds: TimeInterval = 0.15
 
     /// Runs `body` with the editor after all submitted operations.
     func sync<T>(timeout: TimeInterval = 60, _ body: @escaping (DocumentEditor) throws -> T) throws -> T {
@@ -138,10 +142,47 @@ final class DocumentEngine: @unchecked Sendable {
 
     /// Renders a page on the engine thread; `completion` runs on the main thread.
     func render(page: Int, scale: Double, completion: @escaping @MainActor @Sendable (CGImage?, UInt64) -> Void) {
+        renderPixels(page: page, scale: scale) { frame, revision in
+            let image = frame?.makeImage()
+            DispatchQueue.main.async { completion(image, revision) }
+        }
+    }
+
+    /// Renders a page on the engine thread; `completion` runs on the engine thread.
+    func renderPixels(page: Int, scale: Double, completion: @escaping @Sendable (PixelFrame?, UInt64) -> Void) {
         thread.async { [self] in
             let revision = editor.revision
-            let image = try? editor.session.renderPage(page, scale: scale)
-            DispatchQueue.main.async { completion(image, revision) }
+            completion(try? editor.session.renderPixels(page, scale: scale), revision)
+        }
+    }
+
+    func copySelection() throws -> String {
+        try sync(timeout: 10) { try $0.copy() }
+    }
+
+    func surroundingText(timeout: TimeInterval) throws -> ImeContext {
+        try sync(timeout: timeout) { try $0.surroundingText() }
+    }
+
+    func prepareSave(_ format: SaveFormat) throws -> PreparedSave {
+        try sync { try $0.session.prepareSave(format) }
+    }
+
+    func acknowledgeSave(_ token: UInt64) throws -> Bool {
+        try sync { try $0.session.acknowledgeSave(token) }
+    }
+
+    func cancelSave(_ token: UInt64) throws {
+        _ = try sync { try $0.session.cancelSave(token) }
+    }
+
+    func documentText() throws -> String {
+        try sync { editor in
+            let selection = editor.selection
+            if selection == nil { try editor.select(.collapsed(at: .documentStart)) }
+            try editor.execute(.selectAll)
+            defer { if let selection { _ = try? editor.select(selection) } }
+            return try editor.copy()
         }
     }
 
@@ -173,11 +214,12 @@ final class DocumentEngine: @unchecked Sendable {
         let snapshotStarted = Date()
         var snapshot = makeSnapshot(contentsChanged: editor.revision != revision, failure: failure)
         snapshot.appliedSequence = appliedSequence
+        lock.lock()
         if snapshot.contentsChanged {
-            lock.lock()
             lastEditBatchSeconds = snapshotStarted.timeIntervalSince(started)
-            lock.unlock()
         }
+        snapshot.engineIsSlow = lastEditBatchSeconds > Self.slowBatchSeconds
+        lock.unlock()
         if Self.tracing {
             let line = "[engine] batch \(Self.millis(since: started)) ms: \(steps.joined(separator: ", ")), "
                 + "snapshot \(Self.millis(since: snapshotStarted))\n"

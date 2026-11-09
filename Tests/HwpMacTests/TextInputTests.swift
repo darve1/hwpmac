@@ -30,12 +30,7 @@ final class TextInputTests: XCTestCase {
     }
 
     private func documentText() throws -> String {
-        try engine.sync { editor in
-            let selection = editor.selection
-            try editor.execute(.selectAll)
-            defer { if let selection { _ = try? editor.select(selection) } }
-            return try editor.copy()
-        }
+        try engine.documentText()
     }
 
     private func mark(_ text: String) {
@@ -135,20 +130,12 @@ final class TextInputTests: XCTestCase {
         mark("글")
         view.commitInput()
         for format in [SaveFormat.hwp, .hwpx] {
-            let prepared = try engine.sync { editor in
-                let prepared = try editor.session.prepareSave(format)
-                try editor.session.cancelSave(prepared.token)
-                return prepared
-            }
+            let prepared = try engine.prepareSave(format)
+            try engine.cancelSave(prepared.token)
             XCTAssertEqual(prepared.report?.losses.count ?? 0, 0, "\(format)")
             let reopened = try DocumentEngine(data: prepared.data, name: "reopened")
             defer { reopened.close() }
-            let text = try reopened.sync { editor in
-                try editor.select(.collapsed(at: .documentStart))
-                try editor.execute(.selectAll)
-                return try editor.copy()
-            }
-            XCTAssertEqual(text, "한글", "\(format)")
+            XCTAssertEqual(try reopened.documentText(), "한글", "\(format)")
         }
     }
 

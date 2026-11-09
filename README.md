@@ -77,9 +77,38 @@ rhwp 세션은 연 스레드에서만 쓸 수 있고, 편집할 때마다 문서
 
 ### 사용자에게 필요한 것
 
-- **한컴오피스 한글**(Windows 2022/2024 또는 한글 for macOS): 기준 3~5. 편집 검사가 저장한
-  파일(`build/edit-check/out`)을 한글에서 열어 손상 경고가 없는지 확인하는 것부터 시작합니다.
+- **한컴오피스 한글**(Windows 한글 2018/2022/2024): 기준 3~4. 아래 절차는 준비돼 있고, 한글이
+  설치된 Windows에서 실행만 하면 됩니다.
+- **한컴 두 버전의 PDF**: 기준 5.
 - **Apple Developer ID**: 공증과 배포.
+
+### 진짜 한글로 검증하기 (기준 3, 4)
+
+rhwp의 `tools/loadsave_sweep/oracle_run.ps1`은 설치된 한글을 COM으로 조작해 파일마다 열기 성공 여부,
+한글이 뽑은 본문, 쪽 수, 개체 수를 기록합니다. 편집 검사 결과를 그 입력 형식으로 묶습니다.
+
+```sh
+# 1. Mac: 문서마다 원본 + 이 앱 경로로 저장한 4개(편집 전/후 × HWP/HWPX)를 묶음
+python3 scripts/edit-sweep.py build/DerivedData/Build/Products/Debug/hwpmac-edit-check build/edit-check 180 \
+  third_party/rhwp/samples/*.hwp third_party/rhwp/samples/*.hwpx
+python3 scripts/oracle-bundle.py bundle build/edit-check build/edit-check/inputs.list0 build/oracle-bundle 'C:\hwpmac-oracle'
+```
+
+`build/oracle-bundle`(2026-11-09 기준 320개 문서, 1,600개 파일, 1.3GB)을 Windows의 `C:\hwpmac-oracle`로
+복사하고, rhwp 저장소에서 실행합니다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\loadsave_sweep\oracle_run.ps1 `
+  -HwpVersion 2022 -TaskPath C:\hwpmac-oracle\oracle_tasks.tsv -OutDir C:\hwpmac-oracle\oracle_2022 -HideWindow
+powershell -NoProfile -File tools\hangul_version_oracle\restore_com_default.ps1
+```
+
+결과(`oracle_2022\result.tsv`)를 Mac으로 가져와 판정합니다. 저장본이 한글에서 열리는지, 편집하지 않은
+저장본이 원본과 같은 글자 수·개체를 갖는지, 편집한 저장본은 넣은 글자만큼만 달라졌는지 셉니다.
+
+```sh
+python3 scripts/oracle-bundle.py judge build/oracle-bundle result.tsv
+```
 
 ## 알려진 한계
 

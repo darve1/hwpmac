@@ -43,6 +43,14 @@ final class RhwpSession {
 
     /// Renders a whole page; `scale` multiplies layout pixels.
     func renderPage(_ page: Int, scale: Double) throws -> CGImage {
+        guard let image = try renderPixels(page, scale: scale).makeImage() else {
+            throw RhwpSessionError.imageCreationFailed
+        }
+        return image
+    }
+
+    /// Renders a whole page to premultiplied RGBA pixels.
+    func renderPixels(_ page: Int, scale: Double) throws -> PixelFrame {
         let frame = try request(["op": "render", "page": page, "scale": scale])
         guard let buffer = (frame["buffer"] as? NSNumber)?.uint64Value
         else { throw RhwpNativeHostError.invalidResponse }
@@ -58,18 +66,7 @@ final class RhwpSession {
         else { throw RhwpNativeHostError.invalidResponse }
 
         let pixels = try Rhwp.sessionBufferCopy(buffer: buffer, byteLength: byteLength)
-        let bitmapInfo = CGBitmapInfo(
-            rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
-        )
-        guard let provider = CGDataProvider(data: pixels as CFData),
-              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let image = CGImage(
-                  width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
-                  bytesPerRow: stride, space: colorSpace, bitmapInfo: bitmapInfo,
-                  provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
-              )
-        else { throw RhwpSessionError.imageCreationFailed }
-        return image
+        return PixelFrame(data: pixels, width: width, height: height, stride: stride)
     }
 
     func info() throws -> SessionInfo {

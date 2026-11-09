@@ -61,15 +61,15 @@ struct SessionInfo: Decodable {
 }
 
 /// Caret geometry in page layout pixels; `y` is the top of the caret.
-struct CaretRect: Decodable, Sendable {
+struct CaretRect: Codable, Sendable {
     var page: Int
     var x: Double
     var y: Double
     var height: Double
 }
 
-struct SelectionRect: Decodable, Sendable {
-    struct Bounds: Decodable, Sendable {
+struct SelectionRect: Codable, Sendable {
+    struct Bounds: Codable, Sendable {
         var x: Double
         var y: Double
         var width: Double
@@ -82,7 +82,7 @@ struct SelectionRect: Decodable, Sendable {
 
 /// Text around the focus within its paragraph, for input methods.
 /// `absoluteStartScalar` is the paragraph offset of the first scalar of `text`.
-struct ImeContext: Decodable {
+struct ImeContext: Codable, Sendable {
     var text: String
     var cursorScalar: Int
     var absoluteStartScalar: Int
@@ -93,7 +93,7 @@ struct HitTestResult: Decodable {
     var caret: CaretRect?
 }
 
-enum EditCommand: Sendable {
+enum EditCommand: Codable, Sendable {
     case moveLeft(extend: Bool)
     case moveRight(extend: Bool)
     case home(extend: Bool)
@@ -128,27 +128,27 @@ enum EditCommand: Sendable {
     }
 }
 
-enum SaveFormat: String {
+enum SaveFormat: String, Codable, Sendable {
     case hwp
     case hwpx
 }
 
 /// One item of rhwp's content-loss report for a save.
-struct ContentLoss: Decodable {
+struct ContentLoss: Codable, Sendable {
     var code: String
     var subject: String
     var path: String
     var reason: String
 }
 
-struct SaveReport: Decodable {
+struct SaveReport: Codable, Sendable {
     var count: Int
     var losses: [ContentLoss]
     var outputFormat: String
 }
 
 /// Serialized bytes waiting for the host to write them, then acknowledge or cancel `token`.
-struct PreparedSave {
+struct PreparedSave: Codable, Sendable {
     var token: UInt64
     var revision: UInt64
     var data: Data

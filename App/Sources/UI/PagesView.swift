@@ -12,7 +12,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     private static let gap: CGFloat = 24
     private static let cacheLimit = 12
 
-    let engine: DocumentEngine
+    let engine: any DocumentEngineClient
     /// Called after document contents change, e.g. to update the edited state.
     var onDocumentChange: ((DocumentEngine.Snapshot) -> Void)?
     /// Short user-facing status, such as why an edit was refused; nil clears it.
@@ -54,7 +54,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     private var echoValid = true
     private var overlayRect: CGRect?
 
-    init(engine: DocumentEngine) {
+    init(engine: any DocumentEngineClient) {
         self.engine = engine
         snapshot = DocumentEngine.Snapshot(revision: 0)
         super.init(frame: .zero)
@@ -388,7 +388,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
 
     @objc func copy(_ sender: Any?) {
         commitInput()
-        guard let text = try? engine.sync(timeout: 5, { try $0.copy() }) else { return NSSound.beep() }
+        guard let text = try? engine.copySelection() else { return NSSound.beep() }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
@@ -495,7 +495,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     /// of the syllable before the caret (option-return).
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
         guard range.location != NSNotFound,
-              let context = try? engine.sync(timeout: 1, { try $0.surroundingText() })
+              let context = try? engine.surroundingText(timeout: 1)
         else { return nil }
         let scalars = Array(context.text.unicodeScalars)
         let lower = max(range.location - context.absoluteStartScalar, 0)
