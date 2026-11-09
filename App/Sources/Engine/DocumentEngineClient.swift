@@ -30,6 +30,8 @@ protocol DocumentEngineClient: AnyObject {
     func documentText() throws -> String
     /// The current document as a vector PDF (at most 256 pages).
     func exportPDF() throws -> Data
+    /// A read-only query at the current selection, e.g. the section's page setup.
+    func query(_ query: EditQuery) throws -> JSONValue
 
     func close()
 

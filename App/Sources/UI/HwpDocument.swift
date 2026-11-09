@@ -135,6 +135,35 @@ final class HwpDocument: NSDocument {
         }
     }
 
+    @objc func exportHTML(_ sender: Any?) { export(.html) }
+    @objc func exportWord(_ sender: Any?) { export(.word) }
+
+    private func export(_ format: HtmlExport.Format) {
+        guard let window = windowForSheet, let engine else { return }
+        for controller in windowControllers {
+            (controller as? DocumentWindowController)?.commitInput()
+        }
+        let title = (displayName as NSString).deletingPathExtension
+        let html: String
+        do {
+            html = HtmlExport.document(try engine.query(.documentHtml), title: title, format: format)
+        } catch {
+            presentError(error)
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [format.contentType]
+        panel.nameFieldStringValue = title + "." + format.fileExtension
+        panel.beginSheetModal(for: window) { [self] response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try Data(html.utf8).write(to: url)
+            } catch {
+                presentError(error)
+            }
+        }
+    }
+
     private func currentPDF() throws -> Data {
         guard let engine else { throw CocoaError(.fileReadUnknown) }
         for controller in windowControllers {
