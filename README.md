@@ -121,8 +121,9 @@ python3 scripts/oracle-bundle.py judge build/oracle-bundle result.tsv
 ## 알려진 한계
 
 - Apple silicon 전용(rhwp 라이브러리를 arm64로만 빌드).
-- Spotlight 가져오기 확장은 등록(`pluginkit`, `mdimport -e`)되지만, 색인할 때 호출되는 것을 아직 보지 못했습니다.
-  .hwp/.hwpx 형식을 이 앱이 소유(export)하지 않아서일 수 있습니다.
+- Spotlight 가져오기 확장은 등록(`pluginkit`, `mdimport -e`)되지만, 색인할 때 호출되는 것을 보지 못했습니다.
+  확인한 것: 앱을 `~/Applications`에 설치, 새 파일 생성 후 2분 대기, 이 앱이 소유(export)한 시험용 형식으로도
+  같은 결과(형식 소유 문제가 아님), 확장 안 로그도 없음. 다음 확인: Developer ID로 서명한 빌드.
 - XPC 서비스는 앱마다 한 프로세스라, 그 안에서 열린 여러 문서는 서비스가 죽으면 함께 다시 열립니다.
   엔진이 한 편집에 15초 넘게 걸리면 창에 알리고, **파일 → 문서 엔진 다시 시작**으로 서비스를 끝낼 수 있습니다.
   그러면 저장하지 않은 편집은 사라지고 문서는 디스크에서 다시 열립니다. launchd가 서비스를 다시 띄우기까지
