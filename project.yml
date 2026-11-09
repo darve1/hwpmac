@@ -73,7 +73,11 @@ targets:
         codeSign: true
       - target: QuickLookPreview
       - target: QuickLookThumbnail
-      - target: SpotlightImporter
+      - target: SpotlightMDImporter
+        embed: true
+        copy:
+          destination: wrapper
+          subpath: Contents/Library/Spotlight
       - target: EngineService
     entitlements:
       path: App/HwpMac.entitlements
@@ -166,22 +170,37 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.hwpmac.HwpMac.QuickLookThumbnail
 
-  SpotlightImporter:
-    templates: [EngineExtension]
+  # Spotlight importer plugin. macOS does not run CoreSpotlight import
+  # extensions for files; it loads .mdimporter bundles from
+  # Contents/Library/Spotlight. Loaded into mdworker, it reads text with rhwp.
+  SpotlightMDImporter:
+    type: bundle
+    platform: macOS
     sources:
-      - Extensions/SpotlightImporter
+      - Importers/SpotlightImporter
     info:
-      path: Extensions/SpotlightImporter/Info.plist
+      path: Importers/SpotlightImporter/Info.plist
       properties:
-        CFBundleDisplayName: HwpMac Spotlight
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.spotlight.import
-          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SpotlightImporter
-          NSExtensionAttributes:
-            CSSupportedContentTypes: *quickLookTypes
+        CFBundleDisplayName: HwpMac Spotlight Importer
+        CFBundleDocumentTypes:
+          - CFBundleTypeRole: MDImporter
+            LSItemContentTypes: *quickLookTypes
+        CFPlugInDynamicRegistration: false
+        CFPlugInFactories:
+          D012FA37-247E-44F3-A4DE-3E21219EAA4A: MetadataImporterPluginFactory
+        CFPlugInTypes:
+          8B08C4BF-415B-11D8-B3F9-0003936726FC:
+            - D012FA37-247E-44F3-A4DE-3E21219EAA4A
     settings:
       base:
+        PRODUCT_NAME: HwpMac
         PRODUCT_BUNDLE_IDENTIFIER: local.hwpmac.HwpMac.SpotlightImporter
+        WRAPPER_EXTENSION: mdimporter
+        CLANG_ENABLE_OBJC_ARC: YES
+        HEADER_SEARCH_PATHS: $(PROJECT_DIR)/third_party/rhwp/bindings/swift/Sources/CRhwpNative
+        OTHER_LDFLAGS: -lrhwp_native_ffi
+        # .../HwpMac.app/Contents/Library/Spotlight/HwpMac.mdimporter/Contents/MacOS
+        LD_RUNPATH_SEARCH_PATHS: "@loader_path/../../../../../Frameworks"
 
   # Parses and edits documents in a sandbox with no file access; the app
   # sends document bytes over XPC (App/Sources/Engine/EngineXPC.swift).

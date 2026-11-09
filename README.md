@@ -16,7 +16,7 @@ macOS에서 한글 문서(.hwp, .hwpx)를 열고, 본문을 고치고, 저장하
 - HWP/HWPX로 저장, 다른 이름으로 저장(형식 변환). 처음 원본을 덮어쓸 때 확인, rhwp가 보고한 손실은 쓰기 전에 표시
 - Finder Quick Look 미리보기(앞 10쪽)와 아이콘 썸네일
 - 문서 엔진을 파일 접근 권한이 없는 별도 샌드박스 프로세스(XPC)에서 실행. 엔진이 죽어도 앱은 남고 문서를 다시 엶
-- Spotlight 가져오기 확장(아직 동작 미확인, 아래 '알려진 한계')
+- Spotlight 본문 검색: 앱에 들어 있는 Spotlight importer 플러그인이 rhwp로 본문과 쪽 수를 읽음
 
 표 안 글자, 글상자, 개체가 든 문단, 머리말·꼬리말, 암호 문서는 아직 편집하지 못합니다.
 
@@ -51,7 +51,8 @@ open build/DerivedData/Build/Products/Release/HwpMac.app
 | `App/Sources/Engine` | rhwp 세션 래퍼(`RhwpSession`), 편집 상태(`DocumentEditor`), 전용 스레드 엔진(`DocumentEngine`), XPC 프로토콜(`EngineXPC`), Quick Look용 렌더러 |
 | `App/Sources/UI` | NSDocument, XPC 클라이언트(`RemoteDocumentEngine`), 쪽 보기·편집 뷰(`PagesView`, NSTextInputClient), 메뉴, 도움말 |
 | `Services/EngineService` | 문서 엔진 XPC 서비스. 샌드박스 권한 외에는 아무 권한도 없음 |
-| `Extensions` | Quick Look 미리보기·썸네일, Spotlight 가져오기 확장 |
+| `Extensions` | Quick Look 미리보기·썸네일 확장 |
+| `Importers/SpotlightImporter` | Spotlight importer 플러그인(.mdimporter, `Contents/Library/Spotlight`) |
 | `Tools` | 검증 도구: 쪽 렌더(`hwpmac-render-snapshot`), 편집 경로 검사(`hwpmac-edit-check`), 입력 지연(`hwpmac-latency`) |
 | `scripts` | 네이티브 빌드, 코퍼스 편집 검사, 열기 시간 측정 |
 | `research` | 0단계 근거 조사 기록(출처 사본과 인용) |
@@ -81,7 +82,7 @@ rhwp 세션은 연 스레드에서만 쓸 수 있고, 편집할 때마다 문서
 | 6. HWPX 스키마 | — | **미실시**: KS X 6101:2024는 유료이고 XSD 포함 여부 미확인 |
 | 7. 다른 구현과 비교 | — | 미실시 |
 | 8. 성능 | 100쪽 이상 13개 문서 열기 p95 1.09초(엔진 기준, [결과](verification/open-timing-2026-11-09/results.json)). 키 입력 시 메인 스레드 사용 0.014ms 이하. 383쪽 문서에서 빠른 타자 후 반영까지 1.0초 | 엔진이 가끔 한 번 편집에 수십~수백 초 걸림(업스트림 문제) |
-| 9. 플랫폼 | 앱·확장·엔진 서비스 샌드박스, Quick Look 썸네일(`qlmanage -t -x`로 확인), 미리보기 PDF 경로 확인 | 공증 **미실시**: Developer ID 필요. Spotlight 색인 미확인 |
+| 9. 플랫폼 | 앱·확장·엔진 서비스 샌드박스, Quick Look 썸네일(`qlmanage -t -x`로 확인), 미리보기 PDF 경로 확인, Spotlight: 새 파일이 약 15초 안에 본문·쪽 수와 함께 색인되고 `mdfind`로 본문 검색됨 | 공증 **미실시**: Developer ID 필요 |
 | (3단계) 파서 격리 | 엔진을 권한 없는 XPC 서비스로 분리. 서비스를 `kill -9`해도 앱 생존 확인 | |
 
 ### 사용자에게 필요한 것
@@ -122,9 +123,6 @@ python3 scripts/oracle-bundle.py judge build/oracle-bundle result.tsv
 ## 알려진 한계
 
 - Apple silicon 전용(rhwp 라이브러리를 arm64로만 빌드).
-- Spotlight 가져오기 확장은 등록(`pluginkit`, `mdimport -e`)되지만, 색인할 때 호출되는 것을 보지 못했습니다.
-  확인한 것: 앱을 `~/Applications`에 설치, 새 파일 생성 후 2분 대기, 이 앱이 소유(export)한 시험용 형식으로도
-  같은 결과(형식 소유 문제가 아님), 확장 안 로그도 없음. 다음 확인: Developer ID로 서명한 빌드.
 - XPC 서비스는 앱마다 한 프로세스라, 그 안에서 열린 여러 문서는 서비스가 죽으면 함께 다시 열립니다.
   엔진이 한 편집에 15초 넘게 걸리면 창에 알리고, **파일 → 문서 엔진 다시 시작**으로 서비스를 끝낼 수 있습니다.
   그러면 저장하지 않은 편집은 사라지고 문서는 디스크에서 다시 열립니다. launchd가 서비스를 다시 띄우기까지

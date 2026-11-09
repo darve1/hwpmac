@@ -18,11 +18,11 @@ final class AttributionTests: XCTestCase {
 
     func testEverySourceFileStartsWithAttribution() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let directories = ["App/Sources", "Extensions", "Tools", "Tests"].map { root.appendingPathComponent($0) }
+        let directories = ["App/Sources", "Extensions", "Importers", "Services", "Tools", "Tests"].map { root.appendingPathComponent($0) }
         var checked = 0
         for directory in directories {
             let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)?
-                .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" } ?? []
+                .compactMap { $0 as? URL }.filter { ["swift", "c", "m"].contains($0.pathExtension) } ?? []
             for file in files {
                 let firstLine = try String(contentsOf: file, encoding: .utf8).split(separator: "\n").first ?? ""
                 XCTAssertEqual(firstLine, "// \(sentence)", file.lastPathComponent)
