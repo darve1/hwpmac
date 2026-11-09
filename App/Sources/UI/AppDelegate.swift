@@ -50,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addSubmenu(appMenu, titled: appName, to: mainMenu)
 
         let fileMenu = NSMenu(title: "파일")
+        fileMenu.addItem(withTitle: "새 문서", action: #selector(NSDocumentController.newDocument(_:)), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "열기…", action: #selector(NSDocumentController.openDocument(_:)), keyEquivalent: "o")
         // AppKit fills a submenu that contains the clearRecentDocuments: item.
         let recentMenu = NSMenu(title: "최근 사용 열기")

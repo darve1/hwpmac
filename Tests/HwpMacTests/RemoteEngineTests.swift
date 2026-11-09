@@ -53,6 +53,18 @@ final class RemoteEngineTests: XCTestCase {
         XCTAssertEqual(try next.documentText(), "다시")
     }
 
+    /// File > New: a blank document backed by the service, saved as HWP.
+    func testNewDocumentIsBlankAndSavable() throws {
+        let document = try HwpDocument(type: "com.hancom.hwp")
+        defer { document.close() }
+        let engine = try XCTUnwrap(document.engine)
+        XCTAssertEqual(engine.initialPageSizes.count, 1)
+        XCTAssertEqual(try engine.documentText(), "")
+        let prepared = try engine.prepareSave(.hwp)
+        try engine.cancelSave(prepared.token)
+        XCTAssertGreaterThan(prepared.data.count, 0)
+    }
+
     func testServiceRejectsGarbageWithoutTakingTheAppDown() {
         XCTAssertThrowsError(try RemoteDocumentEngine(data: Data("이것은 한글 문서가 아닙니다".utf8)))
     }

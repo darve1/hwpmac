@@ -23,6 +23,13 @@ final class HwpDocument: NSDocument {
         hasUndoManager = false  // rhwp keeps the edit history.
     }
 
+    /// A new, blank document (File > New). rhwp creates it from empty bytes.
+    convenience init(type typeName: String) throws {
+        self.init()
+        fileType = typeName
+        try MainActor.assumeIsolated { try openEngine(with: Data()) }
+    }
+
     override class var autosavesInPlace: Bool {
         false
     }
@@ -31,14 +38,16 @@ final class HwpDocument: NSDocument {
     // The engine runs in the sandboxed EngineService XPC process unless
     // HWPMAC_IN_PROCESS_ENGINE=1 (for debugging the engine in the app).
     override func read(from data: Data, ofType typeName: String) throws {
-        try MainActor.assumeIsolated {
-            if ProcessInfo.processInfo.environment["HWPMAC_IN_PROCESS_ENGINE"] == "1" {
-                engine = try DocumentEngine(data: data, name: "rhwp engine")
-            } else {
-                let remote = try RemoteDocumentEngine(data: data)
-                remote.onDisconnect = { [weak self] in self?.engineStopped() }
-                engine = remote
-            }
+        try MainActor.assumeIsolated { try openEngine(with: data) }
+    }
+
+    private func openEngine(with data: Data) throws {
+        if ProcessInfo.processInfo.environment["HWPMAC_IN_PROCESS_ENGINE"] == "1" {
+            engine = try DocumentEngine(data: data, name: "rhwp engine")
+        } else {
+            let remote = try RemoteDocumentEngine(data: data)
+            remote.onDisconnect = { [weak self] in self?.engineStopped() }
+            engine = remote
         }
     }
 
