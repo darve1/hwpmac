@@ -13,8 +13,9 @@ macOS에서 한글 문서(.hwp, .hwpx)를 열고, 본문을 고치고, 저장하
 - .hwp/.hwpx 열기, 쪽 보기, 확대·축소, 전체 화면
 - 본문 문단 편집(L1): 한글 조합 입력, 한자 변환, 삭제, 문단 나누기, 선택, 실행 취소·복귀, 복사·붙이기
 - HWP/HWPX로 저장, 다른 이름으로 저장(형식 변환). 처음 원본을 덮어쓸 때 확인, rhwp가 보고한 손실은 쓰기 전에 표시
-- Finder Quick Look 미리보기(앞 10쪽)와 아이콘 썸네일, Spotlight 본문 검색
-- 앱 샌드박스
+- Finder Quick Look 미리보기(앞 10쪽)와 아이콘 썸네일
+- 문서 엔진을 파일 접근 권한이 없는 별도 샌드박스 프로세스(XPC)에서 실행. 엔진이 죽어도 앱은 남고 문서를 다시 엶
+- Spotlight 가져오기 확장(아직 동작 미확인, 아래 '알려진 한계')
 
 표 안 글자, 글상자, 개체가 든 문단, 머리말·꼬리말, 암호 문서는 아직 편집하지 못합니다.
 
@@ -46,16 +47,22 @@ open build/DerivedData/Build/Products/Release/HwpMac.app
 | 위치 | 역할 |
 | --- | --- |
 | `third_party/rhwp` | 문서 엔진(파싱, 조판, 렌더링, 편집, 저장). 수정하지 않는 업스트림 |
-| `App/Sources/Engine` | rhwp 세션 래퍼(`RhwpSession`), 편집 상태(`DocumentEditor`), 전용 스레드 엔진(`DocumentEngine`), Quick Look용 렌더러 |
-| `App/Sources/UI` | NSDocument, 쪽 보기·편집 뷰(`PagesView`, NSTextInputClient), 메뉴, 도움말 |
+| `App/Sources/Engine` | rhwp 세션 래퍼(`RhwpSession`), 편집 상태(`DocumentEditor`), 전용 스레드 엔진(`DocumentEngine`), XPC 프로토콜(`EngineXPC`), Quick Look용 렌더러 |
+| `App/Sources/UI` | NSDocument, XPC 클라이언트(`RemoteDocumentEngine`), 쪽 보기·편집 뷰(`PagesView`, NSTextInputClient), 메뉴, 도움말 |
+| `Services/EngineService` | 문서 엔진 XPC 서비스. 샌드박스 권한 외에는 아무 권한도 없음 |
 | `Extensions` | Quick Look 미리보기·썸네일, Spotlight 가져오기 확장 |
 | `Tools` | 검증 도구: 쪽 렌더(`hwpmac-render-snapshot`), 편집 경로 검사(`hwpmac-edit-check`), 입력 지연(`hwpmac-latency`) |
 | `scripts` | 네이티브 빌드, 코퍼스 편집 검사, 열기 시간 측정 |
 | `research` | 0단계 근거 조사 기록(출처 사본과 인용) |
 | `verification` | 측정 결과 |
 
+앱은 문서 파일을 읽어 그 바이트만 XPC 서비스(`EngineService`)로 보냅니다. 서비스는 파일·네트워크
+권한 없이 파싱, 조판, 편집, 직렬화를 하고 상태(JSON), 쪽 픽셀, 저장할 바이트를 돌려줍니다. 악성 문서가
+파서를 장악해도 그 프로세스 밖의 파일에는 닿지 못하고, 엔진이 죽으면 앱이 알리고 문서를 다시 엽니다.
+(`HWPMAC_IN_PROCESS_ENGINE=1`이면 앱 안에서 돌립니다.)
+
 rhwp 세션은 연 스레드에서만 쓸 수 있고, 편집할 때마다 문서 전체의 쪽 나누기를 다시 합니다.
-그래서 문서마다 전용 스레드(`EngineThread`)에서 엔진을 돌리고, UI는 기다리지 않습니다.
+그래서 서비스 안에서도 문서마다 전용 스레드(`EngineThread`)에서 엔진을 돌리고, UI는 기다리지 않습니다.
 엔진이 바쁜 동안 들어온 입력은 한 번에 합쳐 적용하고, 엔진이 느리면 조합 중인 글자와 아직
 반영되지 않은 글자를 캐럿 자리에 바로 그립니다.
 
@@ -73,7 +80,8 @@ rhwp 세션은 연 스레드에서만 쓸 수 있고, 편집할 때마다 문서
 | 6. HWPX 스키마 | — | **미실시**: KS X 6101:2024는 유료이고 XSD 포함 여부 미확인 |
 | 7. 다른 구현과 비교 | — | 미실시 |
 | 8. 성능 | 100쪽 이상 13개 문서 열기 p95 1.09초(엔진 기준, [결과](verification/open-timing-2026-11-09/results.json)). 키 입력 시 메인 스레드 사용 0.014ms 이하. 383쪽 문서에서 빠른 타자 후 반영까지 1.0초 | 엔진이 가끔 한 번 편집에 수십~수백 초 걸림(업스트림 문제) |
-| 9. 플랫폼 | 샌드박스, Quick Look 썸네일(`qlmanage -t -x`로 확인), 미리보기 PDF 경로 확인 | 공증 **미실시**: Developer ID 필요 |
+| 9. 플랫폼 | 앱·확장·엔진 서비스 샌드박스, Quick Look 썸네일(`qlmanage -t -x`로 확인), 미리보기 PDF 경로 확인 | 공증 **미실시**: Developer ID 필요. Spotlight 색인 미확인 |
+| (3단계) 파서 격리 | 엔진을 권한 없는 XPC 서비스로 분리. 서비스를 `kill -9`해도 앱 생존 확인 | |
 
 ### 사용자에게 필요한 것
 
@@ -113,7 +121,9 @@ python3 scripts/oracle-bundle.py judge build/oracle-bundle result.tsv
 ## 알려진 한계
 
 - Apple silicon 전용(rhwp 라이브러리를 arm64로만 빌드).
-- 앱 본체는 rhwp를 같은 프로세스에서 실행합니다(샌드박스 안). 파서를 XPC 서비스로 분리하지 않았습니다.
-  Quick Look과 Spotlight는 각자 샌드박스된 별도 프로세스에서 문서를 읽습니다.
+- Spotlight 가져오기 확장은 등록(`pluginkit`, `mdimport -e`)되지만, 색인할 때 호출되는 것을 아직 보지 못했습니다.
+  .hwp/.hwpx 형식을 이 앱이 소유(export)하지 않아서일 수 있습니다.
+- XPC 서비스는 앱마다 한 프로세스라, 그 안에서 열린 여러 문서는 서비스가 죽으면 함께 다시 열립니다.
+  엔진이 멈추기만 할 때(한 편집에 수백 초)는 UI는 살아 있지만 그 문서의 편집은 끝날 때까지 반영되지 않습니다.
 - 자동 저장과 버전 기록을 켜지 않았습니다(원본 덮어쓰기를 확인받기 위해).
 - NSTextInputClient의 범위는 문단 안 UTF-16 위치로, BMP 밖 글자에서는 근사치입니다.
