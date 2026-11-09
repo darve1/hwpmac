@@ -34,6 +34,7 @@ enum EngineCall: Codable {
     case acknowledgeSave(token: UInt64)
     case cancelSave(token: UInt64)
     case documentText
+    case exportPDF
 
     /// Runs the call against an in-process engine and encodes its result.
     func perform(on engine: DocumentEngine) throws -> Data {
@@ -47,6 +48,7 @@ enum EngineCall: Codable {
             try engine.cancelSave(token)
             return try encoder.encode(true)
         case .documentText: return try encoder.encode(engine.documentText())
+        case .exportPDF: return try encoder.encode(engine.exportPDF())
         }
     }
 }

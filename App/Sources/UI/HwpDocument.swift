@@ -1,6 +1,7 @@
 // 본 제품은 한글과컴퓨터의 한글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
 
 import AppKit
+import PDFKit
 
 /// An HWP/HWPX document edited through rhwp on its own engine thread.
 ///
@@ -96,6 +97,38 @@ final class HwpDocument: NSDocument {
         if isDirty != isDocumentEdited {
             updateChangeCount(isDirty ? .changeDone : .changeCleared)
         }
+    }
+
+    // MARK: Printing and PDF
+
+    override func printOperation(withSettings printSettings: [NSPrintInfo.AttributeKey: Any]) throws -> NSPrintOperation {
+        guard let document = PDFDocument(data: try currentPDF()),
+              let operation = document.printOperation(for: printInfo, scalingMode: .pageScaleDownToFit, autoRotate: true)
+        else { throw CocoaError(.fileWriteUnknown) }
+        return operation
+    }
+
+    @objc func exportPDF(_ sender: Any?) {
+        guard let window = windowForSheet else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = (displayName as NSString).deletingPathExtension + ".pdf"
+        panel.beginSheetModal(for: window) { [self] response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try currentPDF().write(to: url)
+            } catch {
+                presentError(error)
+            }
+        }
+    }
+
+    private func currentPDF() throws -> Data {
+        guard let engine else { throw CocoaError(.fileReadUnknown) }
+        for controller in windowControllers {
+            (controller as? DocumentWindowController)?.commitInput()
+        }
+        return try engine.exportPDF()
     }
 
     // MARK: Saving

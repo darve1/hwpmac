@@ -91,6 +91,10 @@ final class RemoteDocumentEngine: NSObject, DocumentEngineClient, EngineClientPr
         try call(.documentText)
     }
 
+    func exportPDF() throws -> Data {
+        try call(.exportPDF)
+    }
+
     func close() {
         lock.lock()
         let alreadyClosed = closed

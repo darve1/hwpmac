@@ -28,6 +28,8 @@ protocol DocumentEngineClient: AnyObject {
     func cancelSave(_ token: UInt64) throws
     /// The whole document as plain text; the selection is left unchanged.
     func documentText() throws -> String
+    /// The current document as a vector PDF (at most 256 pages).
+    func exportPDF() throws -> Data
 
     func close()
 

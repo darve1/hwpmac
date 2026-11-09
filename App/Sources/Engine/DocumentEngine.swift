@@ -176,6 +176,27 @@ final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
         _ = try sync { try $0.session.cancelSave(token) }
     }
 
+    /// The current document as a vector PDF through rhwp's print profile
+    /// (at most 256 pages). rhwp exports from a file, so the current state is
+    /// serialized to a temporary file first; in the XPC service that is the
+    /// service's own container.
+    func exportPDF() throws -> Data {
+        let bytes = try sync(timeout: 300) { editor -> Data in
+            let prepared = try editor.session.prepareSave(.hwp)
+            try editor.session.cancelSave(prepared.token)
+            return prepared.data
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let input = directory.appendingPathComponent("document.hwp")
+        let output = directory.appendingPathComponent("document.pdf")
+        try bytes.write(to: input)
+        let result = try Rhwp.exportPDFDirect(inputFile: input, outputFile: output)
+        guard result.ok else { throw EngineServiceError.remote(result.error ?? "PDF를 만들지 못했습니다.") }
+        return try Data(contentsOf: output)
+    }
+
     func documentText() throws -> String {
         try sync { editor in
             let selection = editor.selection

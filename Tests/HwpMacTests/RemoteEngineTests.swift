@@ -1,5 +1,6 @@
 // 본 제품은 한글과컴퓨터의 한글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
 
+import PDFKit
 import XCTest
 @testable import HwpMac
 
@@ -63,6 +64,17 @@ final class RemoteEngineTests: XCTestCase {
         let prepared = try engine.prepareSave(.hwp)
         try engine.cancelSave(prepared.token)
         XCTAssertGreaterThan(prepared.data.count, 0)
+    }
+
+    /// Print and PDF export: a vector PDF made inside the service, with real text.
+    func testExportPDFHasTextOfEditedDocument() throws {
+        let engine = try RemoteDocumentEngine(data: Data())
+        defer { engine.close() }
+        engine.submit(.select(.collapsed(at: .documentStart)))
+        engine.submit(.insert("인쇄 시험"))
+        let pdf = try XCTUnwrap(PDFDocument(data: try engine.exportPDF()))
+        XCTAssertEqual(pdf.pageCount, 1)
+        XCTAssertTrue(pdf.string?.contains("인쇄 시험") ?? false, pdf.string ?? "")
     }
 
     func testServiceRejectsGarbageWithoutTakingTheAppDown() {
