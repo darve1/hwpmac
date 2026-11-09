@@ -53,7 +53,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addSubmenu(recentMenu, titled: "최근 사용 열기", to: fileMenu)
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "닫기", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        fileMenu.addItem(withTitle: "저장", action: #selector(NSDocument.save(_:)), keyEquivalent: "s")
+        fileMenu.addItem(withTitle: "다른 이름으로 저장…", action: #selector(NSDocument.saveAs(_:)), keyEquivalent: "S")
         addSubmenu(fileMenu, titled: "파일", to: mainMenu)
+
+        // Undo/redo/copy/cut/paste resolve to PagesView through the responder chain.
+        let editMenu = NSMenu(title: "편집")
+        editMenu.addItem(withTitle: "실행 취소", action: #selector(PagesView.undo(_:)), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "실행 복귀", action: #selector(PagesView.redo(_:)), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "오려두기", action: #selector(PagesView.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "복사하기", action: #selector(PagesView.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "붙이기", action: #selector(PagesView.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "전체 선택", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
+        addSubmenu(editMenu, titled: "편집", to: mainMenu)
 
         let viewMenu = NSMenu(title: "보기")
         viewMenu.addItem(withTitle: "실제 크기", action: #selector(DocumentWindowController.zoomToActualSize(_:)), keyEquivalent: "0")

@@ -42,14 +42,14 @@ targets:
         NSHumanReadableCopyright: 본 제품은 한글과컴퓨터의 한글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
         CFBundleDocumentTypes:
           - CFBundleTypeName: HWP 문서
-            CFBundleTypeRole: Viewer
+            CFBundleTypeRole: Editor
             LSHandlerRank: Alternate
             NSDocumentClass: $(PRODUCT_MODULE_NAME).HwpDocument
             LSItemContentTypes:
               - com.hancom.hwp
               - com.haansoft.hancomofficeviewer.mac.hwp
           - CFBundleTypeName: HWPX 문서
-            CFBundleTypeRole: Viewer
+            CFBundleTypeRole: Editor
             LSHandlerRank: Alternate
             NSDocumentClass: $(PRODUCT_MODULE_NAME).HwpDocument
             LSItemContentTypes:
@@ -73,7 +73,24 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.hwpmac.HwpMac
-    scheme: {}
+    scheme:
+      testTargets:
+        - HwpMacTests
+
+  # Hosted in the app so it uses the app's single copy of the static rhwp
+  # library; linking Rhwp again here would duplicate its native state.
+  HwpMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/HwpMacTests
+    dependencies:
+      - target: HwpMac
+    settings:
+      base:
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/HwpMac.app/Contents/MacOS/HwpMac
+        BUNDLE_LOADER: $(TEST_HOST)
+        GENERATE_INFOPLIST_FILE: YES
 
   hwpmac-render-snapshot:
     type: tool
@@ -81,6 +98,17 @@ targets:
     sources:
       - App/Sources/Engine
       - Tools/RenderSnapshot
+    dependencies:
+      - package: Rhwp
+        product: Rhwp
+    scheme: {}
+
+  hwpmac-edit-check:
+    type: tool
+    platform: macOS
+    sources:
+      - App/Sources/Engine
+      - Tools/EditCheck
     dependencies:
       - package: Rhwp
         product: Rhwp
