@@ -1,0 +1,183 @@
+{
+ "summary": {
+  "base.hwp: same page count as original": 57,
+  "base.hwp: text and objects as expected": 57,
+  "base.hwpx: same page count as original": 56,
+  "base.hwpx: text and objects as expected": 57,
+  "documents": 57,
+  "edited.hwp: same page count as original": 51,
+  "edited.hwp: statistics unreadable": 1,
+  "edited.hwp: text and objects as expected": 56,
+  "edited.hwpx: same page count as original": 51,
+  "edited.hwpx: statistics unreadable": 2,
+  "edited.hwpx: text and objects as expected": 55,
+  "original statistics unreadable": 3
+ },
+ "mismatches": [
+  {
+   "document": "hwp3-sample11-hwp5.hwp",
+   "file": "edited.hwp",
+   "delta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0,
+    "쪽": 1
+   },
+   "expectedDelta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0
+   }
+  },
+  {
+   "document": "hwp3-sample11-hwp5.hwp",
+   "file": "edited.hwpx",
+   "delta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0,
+    "쪽": 1
+   },
+   "expectedDelta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0
+   }
+  },
+  {
+   "document": "hwp3-sample11.hwp",
+   "file": "base.hwpx",
+   "delta": {
+    "글자(공백 포함)": 0,
+    "글자(공백 제외)": 0,
+    "문단": 0,
+    "표, 그림, 글상자": 0,
+    "쪽": 1
+   },
+   "expectedDelta": {}
+  },
+  {
+   "document": "hwp3-sample11.hwp",
+   "file": "edited.hwp",
+   "delta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0,
+    "쪽": 1
+   },
+   "expectedDelta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0
+   }
+  },
+  {
+   "document": "issue2808_single_table_form_physical_ladder.hwpx",
+   "file": "edited.hwp",
+   "delta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0,
+    "쪽": 1
+   },
+   "expectedDelta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0
+   }
+  },
+  {
+   "document": "issue2808_single_table_form_physical_ladder.hwpx",
+   "file": "edited.hwpx",
+   "delta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0,
+    "쪽": 1
+   },
+   "expectedDelta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0
+   }
+  },
+  {
+   "document": "math-001.hwp",
+   "file": "edited.hwp",
+   "delta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0,
+    "쪽": 1
+   },
+   "expectedDelta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0
+   }
+  },
+  {
+   "document": "math-001.hwp",
+   "file": "edited.hwpx",
+   "delta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0,
+    "쪽": 1
+   },
+   "expectedDelta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0
+   }
+  },
+  {
+   "document": "task-001.hwp",
+   "file": "edited.hwp",
+   "delta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0,
+    "쪽": 1
+   },
+   "expectedDelta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0
+   }
+  },
+  {
+   "document": "task-001.hwp",
+   "file": "edited.hwpx",
+   "delta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0,
+    "쪽": 1
+   },
+   "expectedDelta": {
+    "글자(공백 포함)": 9,
+    "글자(공백 제외)": 8,
+    "문단": 1,
+    "표, 그림, 글상자": 0
+   }
+  }
+ ]
+}
