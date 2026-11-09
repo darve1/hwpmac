@@ -101,6 +101,12 @@ final class RemoteDocumentEngine: NSObject, DocumentEngineClient, EngineClientPr
         connection.invalidate()
     }
 
+    var canRestart: Bool { true }
+
+    func restart() {
+        proxy?.terminate()
+    }
+
     // MARK: EngineClientProtocol
 
     func deliverSnapshot(_ data: Data) {

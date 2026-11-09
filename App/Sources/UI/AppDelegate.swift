@@ -59,6 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.addItem(withTitle: "닫기", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileMenu.addItem(withTitle: "저장", action: #selector(NSDocument.save(_:)), keyEquivalent: "s")
         fileMenu.addItem(withTitle: "다른 이름으로 저장…", action: #selector(NSDocument.saveAs(_:)), keyEquivalent: "S")
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(withTitle: "문서 엔진 다시 시작", action: #selector(DocumentWindowController.restartEngine(_:)), keyEquivalent: "")
         addSubmenu(fileMenu, titled: "파일", to: mainMenu)
 
         // Undo/redo/copy/cut/paste resolve to PagesView through the responder chain.

@@ -15,6 +15,9 @@ import Foundation
     /// JSON-encoded `EngineCall`; replies JSON result or an error.
     func call(_ request: Data, reply: @escaping @Sendable (Data?, String?) -> Void)
     func close()
+    /// Ends the service process even while its engine is stuck in a long edit;
+    /// the app sees the connection drop and reopens its documents.
+    func terminate()
 }
 
 /// Exported by the app so the service can push snapshots.

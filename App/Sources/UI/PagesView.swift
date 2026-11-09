@@ -54,6 +54,12 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     private var echoValid = true
     private var overlayRect: CGRect?
 
+    /// The engine has not yet answered operations submitted since this time.
+    private var waitingSince: Date?
+    private var lastSubmitted: UInt64 = 0
+    private var stallTimer: Timer?
+    private static let stallSeconds: TimeInterval = 15
+
     init(engine: any DocumentEngineClient) {
         self.engine = engine
         snapshot = DocumentEngine.Snapshot(revision: 0)
@@ -177,14 +183,41 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     /// Submits an edit other than inserting text.
     private func submit(_ operation: DocumentEngine.Operation) {
         if !echo.isEmpty { echoValid = false }
-        engine.submit(operation)
+        record(engine.submit(operation))
     }
 
     private func submitInsert(_ text: String) {
         let sequence = engine.submit(.insert(text))
+        record(sequence)
         if usesLocalComposition {
             echo.append((sequence, text))
         }
+    }
+
+    private func record(_ sequence: UInt64) {
+        lastSubmitted = sequence
+        if waitingSince == nil { waitingSince = Date() }
+    }
+
+    // MARK: Stalled engine
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        stallTimer?.invalidate()
+        stallTimer = nil
+        guard window != nil else { return }
+        stallTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkForStall() }
+        }
+    }
+
+    /// Says so when the engine has been busy with an edit for a long time.
+    private func checkForStall() {
+        guard let waitingSince else { return }
+        let seconds = Int(Date().timeIntervalSince(waitingSince))
+        guard Double(seconds) >= Self.stallSeconds else { return }
+        let hint = engine.canRestart ? " 파일 > 문서 엔진 다시 시작으로 끝낼 수 있습니다." : ""
+        onStatus?("문서 엔진이 \(seconds)초째 편집을 처리하고 있습니다.\(hint)")
     }
 
     /// Device pixels per layout pixel, so pages stay sharp when magnified.
@@ -216,6 +249,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
 
     private func apply(_ snapshot: DocumentEngine.Snapshot) {
         self.snapshot = snapshot
+        if snapshot.appliedSequence >= lastSubmitted { waitingSince = nil }
         echo.removeAll { $0.sequence <= snapshot.appliedSequence }
         if echo.isEmpty { echoValid = true }
         if let sizes = snapshot.pageSizes {
@@ -456,7 +490,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         if localComposition {
             updateOverlay()
         } else {
-            engine.submit(.mark(text))
+            record(engine.submit(.mark(text)))
         }
     }
 

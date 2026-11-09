@@ -72,6 +72,10 @@ final class EngineServiceSession: NSObject, EngineServiceProtocol, @unchecked Se
         engine?.close()
     }
 
+    func terminate() {
+        exit(0)
+    }
+
     private func forward(_ snapshot: DocumentEngine.Snapshot) {
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         (connection?.remoteObjectProxy as? EngineClientProtocol)?.deliverSnapshot(data)

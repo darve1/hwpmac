@@ -35,6 +35,24 @@ final class RemoteEngineTests: XCTestCase {
         XCTAssertEqual(try reopened.documentText(), "가나다")
     }
 
+    /// A stuck engine can be ended from the app; the connection reports it and
+    /// a new engine starts on the next open.
+    func testRestartEndsServiceAndNextOpenWorks() throws {
+        let engine = try RemoteDocumentEngine(data: Data())
+        let disconnected = expectation(description: "disconnect")
+        engine.onDisconnect = { disconnected.fulfill() }
+        XCTAssertTrue(engine.canRestart)
+        engine.restart()
+        wait(for: [disconnected], timeout: 10)
+        engine.close()
+
+        let next = try RemoteDocumentEngine(data: Data())
+        defer { next.close() }
+        next.submit(.select(.collapsed(at: .documentStart)))
+        next.submit(.insert("다시"))
+        XCTAssertEqual(try next.documentText(), "다시")
+    }
+
     func testServiceRejectsGarbageWithoutTakingTheAppDown() {
         XCTAssertThrowsError(try RemoteDocumentEngine(data: Data("이것은 한글 문서가 아닙니다".utf8)))
     }

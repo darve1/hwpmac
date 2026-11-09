@@ -2,7 +2,7 @@
 
 import AppKit
 
-final class DocumentWindowController: NSWindowController {
+final class DocumentWindowController: NSWindowController, NSMenuItemValidation {
     private let scrollView = NSScrollView()
     private let pagesView: PagesView
 
@@ -45,6 +45,17 @@ final class DocumentWindowController: NSWindowController {
     /// Commits any input-method composition so a save includes it.
     func commitInput() {
         pagesView.commitInput()
+    }
+
+    @objc func restartEngine(_ sender: Any?) {
+        (document as? HwpDocument)?.restartEngine()
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(restartEngine(_:)) {
+            return (document as? HwpDocument)?.engine?.canRestart ?? false
+        }
+        return true
     }
 
     @objc func zoomToActualSize(_ sender: Any?) {

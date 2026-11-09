@@ -30,6 +30,16 @@ protocol DocumentEngineClient: AnyObject {
     func documentText() throws -> String
 
     func close()
+
+    /// Whether `restart()` can stop a stuck engine (only an out-of-process one can).
+    var canRestart: Bool { get }
+    /// Stops the engine process; its documents must be reopened.
+    func restart()
+}
+
+extension DocumentEngineClient {
+    var canRestart: Bool { false }
+    func restart() {}
 }
 
 /// A rendered page as raw pixels, for crossing the XPC boundary.

@@ -16,6 +16,7 @@ final class HwpDocument: NSDocument {
     /// The first in-place overwrite of the opened file asks for confirmation,
     /// because saved files are not yet verified in 한글.
     private var overwriteConfirmed = false
+    private var restartRequested = false
 
     override init() {
         super.init()
@@ -41,12 +42,19 @@ final class HwpDocument: NSDocument {
         }
     }
 
-    /// The engine process exited (a crash or a kill): its unsaved edits are
-    /// gone, so say so and reopen the document from disk.
+    /// Stops a stuck engine. The service hosts every open document, so all of
+    /// them are reopened from disk.
+    func restartEngine() {
+        restartRequested = true
+        engine?.restart()
+    }
+
+    /// The engine process exited (a crash, a kill or a restart): its unsaved
+    /// edits are gone, so say so and reopen the document from disk.
     private func engineStopped() {
         let alert = NSAlert()
         alert.alertStyle = .critical
-        alert.messageText = "문서 엔진이 멈췄습니다"
+        alert.messageText = restartRequested ? "문서 엔진을 다시 시작했습니다" : "문서 엔진이 멈췄습니다"
         alert.informativeText = "마지막으로 저장한 뒤의 편집은 사라졌을 수 있습니다. 문서를 디스크에서 다시 엽니다."
         let reopen = { [self] in
             let url = fileURL
