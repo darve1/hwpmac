@@ -77,6 +77,12 @@ final class RemoteEngineTests: XCTestCase {
         XCTAssertTrue(pdf.string?.contains("인쇄 시험") ?? false, pdf.string ?? "")
     }
 
+    func testDetectsHWP3BySignature() {
+        XCTAssertTrue(HwpDocument.isHWP3(Data("HWP Document File V3.00 \u{1a}\u{01}".utf8)))
+        XCTAssertFalse(HwpDocument.isHWP3(Data([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])))
+        XCTAssertFalse(HwpDocument.isHWP3(Data()))
+    }
+
     func testServiceRejectsGarbageWithoutTakingTheAppDown() {
         XCTAssertThrowsError(try RemoteDocumentEngine(data: Data("이것은 한글 문서가 아닙니다".utf8)))
     }

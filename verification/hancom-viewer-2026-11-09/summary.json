@@ -1,0 +1,60 @@
+{
+ "summary": {
+  "base.hwp: NOT opened": 1,
+  "base.hwp: opened": 315,
+  "base.hwpx: opened": 316,
+  "documents": 316,
+  "edited.hwp: NOT opened": 2,
+  "edited.hwp: opened": 314,
+  "edited.hwpx: opened": 316,
+  "original not opened by viewer (excluded)": 4
+ },
+ "failures": [
+  {
+   "document": "hwp3-sample16.hwp",
+   "file": "0120.base.hwp",
+   "windows": [
+    "한컴오피스 한글",
+    ""
+   ],
+   "dialog": [
+    "한컴오피스 한글",
+    "경고",
+    "한컴오피스 한글 Viewer 중요한 경고",
+    "파일이 손상되었습니다.",
+    "확인"
+   ]
+  },
+  {
+   "document": "hwp3-sample16.hwp",
+   "file": "0120.edited.hwp",
+   "windows": [
+    "한컴오피스 한글",
+    ""
+   ],
+   "dialog": [
+    "한컴오피스 한글",
+    "경고",
+    "한컴오피스 한글 Viewer 중요한 경고",
+    "파일이 손상되었습니다.",
+    "확인"
+   ]
+  },
+  {
+   "document": "issue5169_viewtext_changetracking.hwp",
+   "file": "0185.edited.hwp",
+   "windows": [
+    "한컴오피스 한글",
+    ""
+   ],
+   "dialog": [
+    "한컴오피스 한글",
+    "경고",
+    "한컴오피스 한글 Viewer 중요한 경고",
+    "손상된 문서의 내용을 복구할까요?",
+    "취소",
+    "복구"
+   ]
+  }
+ ]
+}

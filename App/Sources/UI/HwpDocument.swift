@@ -18,6 +18,10 @@ final class HwpDocument: NSDocument {
     /// because saved files are not yet verified in 한글.
     private var overwriteConfirmed = false
     private var restartRequested = false
+    /// The opened file is HWP 3.0. Hancom's viewer reported rhwp's HWP 5 save of
+    /// an HWP 3.0 sample as corrupt while the HWPX save opened (see
+    /// verification/hancom-viewer-2026-11-09), so saving it as HWP asks first.
+    private var openedAsHWP3 = false
 
     override init() {
         super.init()
@@ -39,7 +43,15 @@ final class HwpDocument: NSDocument {
     // The engine runs in the sandboxed EngineService XPC process unless
     // HWPMAC_IN_PROCESS_ENGINE=1 (for debugging the engine in the app).
     override func read(from data: Data, ofType typeName: String) throws {
-        try MainActor.assumeIsolated { try openEngine(with: data) }
+        try MainActor.assumeIsolated {
+            openedAsHWP3 = Self.isHWP3(data)
+            try openEngine(with: data)
+        }
+    }
+
+    /// HWP 3.0 files start with this ASCII signature (HWP 5 files are CFB).
+    nonisolated static func isHWP3(_ data: Data) -> Bool {
+        data.starts(with: Data("HWP Document File V3".utf8))
     }
 
     private func openEngine(with data: Data) throws {
@@ -149,7 +161,8 @@ final class HwpDocument: NSDocument {
         }
 
         let overwritesOriginal = saveOperation == .saveOperation && url == fileURL && !overwriteConfirmed
-        confirmOverwrite(needed: overwritesOriginal) { [self] decision in
+        let hwp3AsHWP = openedAsHWP3 && Self.format(forType: typeName) == .hwp
+        confirmOverwrite(needed: overwritesOriginal, hwp3AsHWP: hwp3AsHWP) { [self] decision in
             switch decision {
             case .cancel:
                 return completionHandler(CocoaError(.userCancelled))
@@ -215,15 +228,25 @@ final class HwpDocument: NSDocument {
         case proceed, saveAs, cancel
     }
 
-    private func confirmOverwrite(needed: Bool, then decide: @escaping (OverwriteDecision) -> Void) {
-        guard needed, let window = windowForSheet else { return decide(.proceed) }
+    private func confirmOverwrite(needed: Bool, hwp3AsHWP: Bool, then decide: @escaping (OverwriteDecision) -> Void) {
+        guard needed || hwp3AsHWP, let window = windowForSheet else { return decide(.proceed) }
         let alert = NSAlert()
-        alert.messageText = "원본 파일을 덮어쓸까요?"
-        alert.informativeText = """
-        이 앱이 저장한 파일은 아직 한글(한컴오피스)에서 검증되지 않았습니다. \
-        원본을 남겨 두려면 다른 이름으로 저장하세요.
-        """
-        alert.addButton(withTitle: "덮어쓰기")
+        if hwp3AsHWP {
+            alert.alertStyle = .warning
+            alert.messageText = "HWP 3.0 문서를 HWP로 저장할까요?"
+            alert.informativeText = """
+            이 문서는 HWP 3.0 형식입니다. 이 앱이 HWP 3.0 문서를 HWP로 저장한 파일을 한글 Viewer가 \
+            손상된 파일로 판정한 사례가 있습니다. 다른 이름으로 저장에서 HWPX를 고르는 것을 권합니다.
+            """
+            alert.addButton(withTitle: "그래도 HWP로 저장")
+        } else {
+            alert.messageText = "원본 파일을 덮어쓸까요?"
+            alert.informativeText = """
+            이 앱의 저장본은 한글 Viewer 검사에서 99.8%가 정상으로 열렸지만, 모든 문서가 검증된 것은 아닙니다. \
+            원본을 남겨 두려면 다른 이름으로 저장하세요.
+            """
+            alert.addButton(withTitle: "덮어쓰기")
+        }
         alert.addButton(withTitle: "다른 이름으로 저장…")
         alert.addButton(withTitle: "취소")
         alert.beginSheetModal(for: window) { response in
