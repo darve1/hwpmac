@@ -2,7 +2,7 @@
 
 import AppKit
 
-/// An HWP/HWPX document edited through rhwp.
+/// An HWP/HWPX document edited through rhwp on its own engine thread.
 ///
 /// Saving follows rhwp's checkpoint protocol: serialize (`prepareSave`), let
 /// NSDocument write the file, then acknowledge the checkpoint only if the
@@ -11,8 +11,7 @@ final class HwpDocument: NSDocument {
     private nonisolated static let hwpType = "com.hancom.hwp"
     private nonisolated static let hwpxType = "com.hancom.hwpx"
 
-    private(set) var editor: DocumentEditor?
-    private var pageSizes: [CGSize] = []
+    private(set) var engine: DocumentEngine?
     private var pendingSave: PreparedSave?
     /// The first in-place overwrite of the opened file asks for confirmation,
     /// because saved files are not yet verified in 한글.
@@ -27,26 +26,28 @@ final class HwpDocument: NSDocument {
         false
     }
 
-    // Documents are read on the main thread (concurrent reading is off by
-    // default), which is also where the session is used afterwards.
+    // Documents are read on the main thread (concurrent reading is off by default).
     override func read(from data: Data, ofType typeName: String) throws {
         try MainActor.assumeIsolated {
-            let session = try RhwpSession(data: data)
-            pageSizes = try (0..<session.pageCount).map { try session.pageSize($0) }
-            editor = try DocumentEditor(session: session)
+            engine = try DocumentEngine(data: data, name: "rhwp engine")
         }
     }
 
     override func makeWindowControllers() {
-        guard let editor else { return }
-        addWindowController(DocumentWindowController(editor: editor, pageSizes: pageSizes))
+        guard let engine else { return }
+        addWindowController(DocumentWindowController(engine: engine))
+    }
+
+    override func close() {
+        super.close()
+        engine?.close()
+        engine = nil
     }
 
     /// Mirrors rhwp's dirty flag (which undo can clear) into the edited state.
-    func syncEditedState() {
-        let dirty = (try? editor?.session.info().isDirty) ?? true
-        if dirty != isDocumentEdited {
-            updateChangeCount(dirty ? .changeDone : .changeCleared)
+    func syncEditedState(isDirty: Bool) {
+        if isDirty != isDocumentEdited {
+            updateChangeCount(isDirty ? .changeDone : .changeCleared)
         }
     }
 
@@ -60,7 +61,7 @@ final class HwpDocument: NSDocument {
         to url: URL, ofType typeName: String, for saveOperation: NSDocument.SaveOperationType,
         completionHandler: @escaping (Error?) -> Void
     ) {
-        guard let session = editor?.session else {
+        guard let engine else {
             return completionHandler(CocoaError(.fileWriteUnknown))
         }
         for controller in windowControllers {
@@ -80,31 +81,34 @@ final class HwpDocument: NSDocument {
                 if overwritesOriginal { overwriteConfirmed = true }
             }
 
+            let format = Self.format(forType: typeName)
             let prepared: PreparedSave
             do {
-                prepared = try session.prepareSave(Self.format(forType: typeName))
+                // Runs after every edit already submitted.
+                prepared = try engine.sync { try $0.session.prepareSave(format) }
             } catch {
                 return completionHandler(error)
             }
             confirmLosses(prepared.report) { [self] accepted in
                 guard accepted else {
-                    _ = try? session.cancelSave(prepared.token)
+                    _ = try? engine.sync { try $0.session.cancelSave(prepared.token) }
                     return completionHandler(CocoaError(.userCancelled))
                 }
                 pendingSave = prepared
                 writeWithNSDocument(to: url, ofType: typeName, for: saveOperation) { [self] error in
                     pendingSave = nil
                     if let error {
-                        _ = try? session.cancelSave(prepared.token)
+                        _ = try? engine.sync { try $0.session.cancelSave(prepared.token) }
                         return completionHandler(error)
                     }
+                    let stillDirty: Bool
                     do {
-                        try session.acknowledgeSave(prepared.token)
+                        stillDirty = try engine.sync { try $0.session.acknowledgeSave(prepared.token) }
                     } catch {
                         return completionHandler(error)
                     }
                     completionHandler(nil)
-                    if saveOperation == .saveToOperation { syncEditedState() }
+                    if saveOperation == .saveToOperation || stillDirty { syncEditedState(isDirty: stillDirty) }
                 }
             }
         }

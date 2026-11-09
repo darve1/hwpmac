@@ -1,39 +1,67 @@
 // 본 제품은 한글과컴퓨터의 한글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
 
 import AppKit
-import Rhwp
 
-/// Stacks every page vertically, renders the pages being drawn and edits body
-/// text through a `DocumentEditor`.
+/// Stacks every page vertically and edits body text.
 ///
-/// One layout pixel is drawn as one point. Everything runs on the main thread,
-/// which owns the session.
+/// The view never waits for the engine: edits are submitted to the
+/// `DocumentEngine`, whose snapshots update the caret and selection, and pages
+/// are rendered asynchronously (a stale page stays visible until its new
+/// image arrives). One layout pixel is drawn as one point.
 final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidation {
     private static let gap: CGFloat = 24
     private static let cacheLimit = 12
 
-    let editor: DocumentEditor
+    let engine: DocumentEngine
     /// Called after document contents change, e.g. to update the edited state.
-    var onDocumentChange: (() -> Void)?
+    var onDocumentChange: ((DocumentEngine.Snapshot) -> Void)?
     /// Short user-facing status, such as why an edit was refused; nil clears it.
     var onStatus: ((String?) -> Void)?
 
-    private var session: RhwpSession { editor.session }
+    private var snapshot: DocumentEngine.Snapshot
     private var pageRects: [CGRect] = []
     private var cache: [Int: (scale: Double, revision: UInt64, image: CGImage)] = [:]
     private var cacheOrder: [Int] = []
+    private var rendering: Set<Int> = []
     private let insertionIndicator = NSTextInsertionIndicator()
     private var caretRect: CGRect?
     private var selectionRects: [CGRect] = []
     private var markedRects: [CGRect] = []
-    private var dragAnchor: TextPosition?
 
-    init(editor: DocumentEditor, pageSizes: [CGSize]) {
-        self.editor = editor
+    // Input-method state answers NSTextInputClient queries immediately,
+    // ahead of the engine catching up. `markedStart` is a paragraph offset; it
+    // comes from the last snapshot unless the input method gave a range.
+    private var markedText = ""
+    private var markedStart: Int?
+
+    enum CompositionPolicy {
+        /// Local while the engine is slow (`DocumentEngine.isSlow`).
+        case automatic
+        case engine
+        case local
+    }
+
+    /// Where uncommitted input-method text lives. In the engine it is laid out
+    /// in the document; locally it is drawn over the caret and only committed
+    /// syllables reach the engine, which then re-paginates once per syllable
+    /// instead of once per keystroke.
+    var compositionPolicy = CompositionPolicy.automatic
+    private var localComposition = false
+    /// Text submitted but not yet in a snapshot, drawn at the caret ("echo").
+    /// Valid only while nothing but inserts is pending, since other edits can
+    /// move the caret.
+    private var echo: [(sequence: UInt64, text: String)] = []
+    private var echoValid = true
+    private var overlayRect: CGRect?
+
+    init(engine: DocumentEngine) {
+        self.engine = engine
+        snapshot = DocumentEngine.Snapshot(revision: 0)
         super.init(frame: .zero)
-        layOutPages(pageSizes)
+        layOutPages(engine.initialPageSizes)
         insertionIndicator.displayMode = .hidden
         addSubview(insertionIndicator)
+        engine.onSnapshot = { [weak self] in self?.apply($0) }
     }
 
     @available(*, unavailable)
@@ -60,6 +88,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         NSColor.underPageBackgroundColor.setFill()
         dirtyRect.fill()
 
+        let scale = renderScale
         for (page, rect) in pageRects.enumerated() where rect.intersects(dirtyRect) {
             NSGraphicsContext.saveGraphicsState()
             let shadow = NSShadow()
@@ -70,12 +99,13 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
             rect.fill()
             NSGraphicsContext.restoreGraphicsState()
 
-            do {
-                let image = try pageImage(page)
-                NSImage(cgImage: image, size: rect.size)
+            let cached = cache[page]
+            if let cached {
+                NSImage(cgImage: cached.image, size: rect.size)
                     .draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-            } catch {
-                drawFailure(error, in: rect)
+            }
+            if cached?.scale != scale || cached?.revision != snapshot.revision {
+                requestRender(page, scale: scale)
             }
         }
 
@@ -87,6 +117,74 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         for rect in markedRects where rect.intersects(dirtyRect) {
             CGRect(x: rect.minX, y: rect.maxY - 1.5, width: rect.width, height: 1.5).fill()
         }
+        drawOverlay()
+    }
+
+    // MARK: Typing echo and local composition
+
+    private var overlayFont: NSFont {
+        NSFont.systemFont(ofSize: min(max((caretRect?.height ?? 13) * 0.8, 8), 72))
+    }
+
+    private var echoText: String {
+        echoValid ? echo.map(\.text).joined() : ""
+    }
+
+    private func drawOverlay() {
+        guard let overlayRect else { return }
+        NSColor.textBackgroundColor.setFill()
+        overlayRect.fill()
+        let attributes: [NSAttributedString.Key: Any] = [.font: overlayFont, .foregroundColor: NSColor.textColor]
+        let echoed = echoText as NSString
+        let marked = (localComposition ? markedText : "") as NSString
+        let baseline = overlayRect.minY + (overlayRect.height - overlayFont.ascender + overlayFont.descender) / 2
+        echoed.draw(at: CGPoint(x: overlayRect.minX + 1, y: baseline), withAttributes: attributes)
+        let markedX = overlayRect.minX + 1 + echoed.size(withAttributes: attributes).width
+        marked.draw(at: CGPoint(x: markedX, y: baseline), withAttributes: attributes)
+        let markedWidth = marked.size(withAttributes: attributes).width
+        NSColor.textColor.setFill()
+        CGRect(x: markedX, y: overlayRect.maxY - 1.5, width: markedWidth, height: 1.5).fill()
+    }
+
+    /// Recomputes the overlay after the echo, local composition or caret changed.
+    private func updateOverlay() {
+        let text = echoText + (localComposition ? markedText : "")
+        let newRect: CGRect? = caretRect.flatMap { caret in
+            guard !text.isEmpty else { return nil }
+            let width = (text as NSString).size(withAttributes: [.font: overlayFont]).width
+            return CGRect(x: caret.minX, y: caret.minY, width: ceil(width) + 2, height: caret.height)
+        }
+        for rect in [overlayRect, newRect].compactMap({ $0 }) {
+            setNeedsDisplay(rect.insetBy(dx: -2, dy: -2))
+        }
+        overlayRect = newRect
+        updateInsertionIndicator()
+    }
+
+    /// Whether typed or composing text is currently drawn over the caret.
+    var isShowingTypingOverlay: Bool {
+        overlayRect != nil
+    }
+
+    private var usesLocalComposition: Bool {
+        switch compositionPolicy {
+        case .automatic: engine.isSlow
+        case .engine: false
+        case .local: true
+        }
+    }
+
+    /// Submits an edit other than inserting text.
+    private func submit(_ operation: DocumentEngine.Operation) {
+        if !echo.isEmpty { echoValid = false }
+        engine.submit(operation)
+    }
+
+    private func submitInsert(_ text: String) {
+        let sequence = engine.submit(.insert(text))
+        if usesLocalComposition {
+            echo.append((sequence, text))
+        }
     }
 
     /// Device pixels per layout pixel, so pages stay sharp when magnified.
@@ -96,27 +194,77 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         return (backing * max(magnification, 1) * 2).rounded(.up) / 2
     }
 
-    private func pageImage(_ page: Int) throws -> CGImage {
-        let scale = renderScale
-        if let cached = cache[page], cached.scale == scale, cached.revision == editor.revision {
-            return cached.image
+    private func requestRender(_ page: Int, scale: Double) {
+        guard rendering.insert(page).inserted else { return }
+        engine.render(page: page, scale: scale) { [weak self] image, revision in
+            guard let self else { return }
+            rendering.remove(page)
+            guard let image else { return }
+            cache[page] = (scale, revision, image)
+            cacheOrder.removeAll { $0 == page }
+            cacheOrder.append(page)
+            if cacheOrder.count > Self.cacheLimit {
+                cache[cacheOrder.removeFirst()] = nil
+            }
+            if pageRects.indices.contains(page) {
+                setNeedsDisplay(pageRects[page])
+            }
         }
-        let image = try session.renderPage(page, scale: scale)
-        cache[page] = (scale, editor.revision, image)
-        cacheOrder.removeAll { $0 == page }
-        cacheOrder.append(page)
-        if cacheOrder.count > Self.cacheLimit {
-            cache[cacheOrder.removeFirst()] = nil
-        }
-        return image
     }
 
-    private func drawFailure(_ error: Error, in rect: CGRect) {
-        let message = "이 쪽을 그리지 못했습니다.\n\(error)" as NSString
-        message.draw(in: rect.insetBy(dx: 24, dy: 24), withAttributes: [
-            .font: NSFont.systemFont(ofSize: 13),
-            .foregroundColor: NSColor.systemRed,
-        ])
+    // MARK: Engine snapshots
+
+    private func apply(_ snapshot: DocumentEngine.Snapshot) {
+        self.snapshot = snapshot
+        echo.removeAll { $0.sequence <= snapshot.appliedSequence }
+        if echo.isEmpty { echoValid = true }
+        if let sizes = snapshot.pageSizes {
+            layOutPages(sizes)
+            needsDisplay = true
+        }
+        if snapshot.contentsChanged {
+            setNeedsDisplay(visibleRect)
+            onDocumentChange?(snapshot)
+        }
+        if let failure = snapshot.failure {
+            NSSound.beep()
+            if !markedText.isEmpty {
+                // The composition was refused; let the input method start over.
+                clearMarkedText()
+                inputContext?.discardMarkedText()
+            }
+            onStatus?(failure)
+        } else {
+            onStatus?(nil)
+        }
+
+        let oldRects = selectionRects + markedRects + [caretRect].compactMap { $0 }
+        caretRect = snapshot.caret.flatMap { viewRect(page: $0.page, x: $0.x, y: $0.y, width: 0, height: $0.height) }
+        selectionRects = viewRects(snapshot.selectionRects)
+        markedRects = viewRects(snapshot.markedRects)
+        for rect in oldRects + selectionRects + markedRects {
+            setNeedsDisplay(rect.insetBy(dx: -2, dy: -2))
+        }
+        updateOverlay()
+        if let caretRect {
+            scrollToVisible(caretRect.insetBy(dx: -24, dy: -24))
+        }
+    }
+
+    private func viewRects(_ rects: [SelectionRect]) -> [CGRect] {
+        rects.compactMap {
+            viewRect(page: $0.page, x: $0.bounds.x, y: $0.bounds.y, width: $0.bounds.width, height: $0.bounds.height)
+        }
+    }
+
+    private func updateInsertionIndicator() {
+        guard let caretRect, window?.firstResponder === self else {
+            insertionIndicator.displayMode = .hidden
+            return
+        }
+        let x = overlayRect?.maxX ?? caretRect.minX
+        insertionIndicator.frame = CGRect(x: x - 1, y: caretRect.minY, width: 2, height: caretRect.height)
+        insertionIndicator.displayMode = .automatic
     }
 
     // MARK: Coordinates
@@ -141,90 +289,26 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
 
     /// Puts the caret at the start of the document so typing works without a click.
     func beginEditingAtStart() {
-        perform { try editor.select(.collapsed(at: .documentStart)) }
+        submit(.select(.collapsed(at: .documentStart)))
     }
 
-    /// Commits any input-method composition, e.g. before saving.
+    /// Commits any input-method composition, e.g. before saving or moving the caret.
     func commitInput() {
-        guard editor.hasMarkedText else { return }
-        perform { try editor.commitMarkedText() }
+        guard !markedText.isEmpty else { return }
+        if localComposition {
+            submitInsert(markedText)
+        } else {
+            submit(.commitMarked)
+        }
+        clearMarkedText()
         inputContext?.discardMarkedText()
     }
 
-    /// Runs an edit, then refreshes layout, drawing and caret. Edits rhwp
-    /// cannot apply at this position (tables, objects...) only beep and say why.
-    @discardableResult
-    private func perform(_ edit: () throws -> Any?) -> Bool {
-        let revision = editor.revision
-        do {
-            _ = try edit()
-            onStatus?(nil)
-        } catch RhwpNativeHostError.failed(code: "unsupported", _) {
-            NSSound.beep()
-            onStatus?("이 위치는 아직 편집할 수 없습니다 (표, 개체 등이 있는 문단)")
-            refreshAfterEdit(contentsChanged: editor.revision != revision)
-            return false
-        } catch {
-            NSSound.beep()
-            onStatus?("편집하지 못했습니다: \(error)")
-            refreshAfterEdit(contentsChanged: editor.revision != revision)
-            return false
-        }
-        refreshAfterEdit(contentsChanged: editor.revision != revision)
-        return true
-    }
-
-    private func refreshAfterEdit(contentsChanged: Bool) {
-        if contentsChanged {
-            if let info = try? session.info(), info.pageCount != pageRects.count,
-               let sizes = try? (0..<info.pageCount).map({ try session.pageSize($0) }) {
-                layOutPages(sizes)
-            }
-            needsDisplay = true
-            onDocumentChange?()
-        }
-        updateSelectionGeometry()
-    }
-
-    private func updateSelectionGeometry() {
-        let oldRects = selectionRects + markedRects + [caretRect].compactMap { $0 }
-        caretRect = nil
-        selectionRects = []
-        markedRects = []
-        if let selection = editor.selection {
-            if selection.isCollapsed {
-                if let caret = try? session.caret(at: selection.focus) {
-                    caretRect = viewRect(page: caret.page, x: caret.x, y: caret.y, width: 0, height: caret.height)
-                }
-            } else {
-                selectionRects = rects(for: selection)
-            }
-        }
-        if let marked = editor.markedSelection {
-            markedRects = rects(for: marked)
-        }
-        for rect in oldRects + selectionRects + markedRects {
-            setNeedsDisplay(rect.insetBy(dx: -2, dy: -2))
-        }
-        updateInsertionIndicator()
-        if let caretRect {
-            scrollToVisible(caretRect.insetBy(dx: -24, dy: -24))
-        }
-    }
-
-    private func rects(for selection: TextSelection) -> [CGRect] {
-        ((try? session.selectionRects(selection)) ?? []).compactMap {
-            viewRect(page: $0.page, x: $0.bounds.x, y: $0.bounds.y, width: $0.bounds.width, height: $0.bounds.height)
-        }
-    }
-
-    private func updateInsertionIndicator() {
-        guard let caretRect, window?.firstResponder === self else {
-            insertionIndicator.displayMode = .hidden
-            return
-        }
-        insertionIndicator.frame = CGRect(x: caretRect.minX - 1, y: caretRect.minY, width: 2, height: caretRect.height)
-        insertionIndicator.displayMode = .automatic
+    private func clearMarkedText() {
+        markedText = ""
+        markedStart = nil
+        localComposition = false
+        updateOverlay()
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -243,30 +327,15 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         commitInput()
-        guard let hit = hitTest(event) else { return }
-        if event.modifierFlags.contains(.shift), let anchor = editor.selection?.anchor {
-            dragAnchor = anchor
-            perform { try editor.select(TextSelection(anchor: anchor, focus: hit)) }
-        } else {
-            dragAnchor = hit
-            perform { try editor.select(.collapsed(at: hit)) }
-        }
+        guard let target = pagePoint(at: convert(event.locationInWindow, from: nil)) else { return }
+        submit(.click(page: target.page, x: target.x, y: target.y,
+                             extendSelection: event.modifierFlags.contains(.shift)))
     }
 
     override func mouseDragged(with event: NSEvent) {
         autoscroll(with: event)
-        guard let anchor = dragAnchor, let hit = hitTest(event), hit != editor.selection?.focus else { return }
-        perform { try editor.select(TextSelection(anchor: anchor, focus: hit)) }
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        dragAnchor = nil
-    }
-
-    private func hitTest(_ event: NSEvent) -> TextPosition? {
-        let point = convert(event.locationInWindow, from: nil)
-        guard let target = pagePoint(at: point) else { return nil }
-        return try? session.hitTest(page: target.page, x: target.x, y: target.y).position
+        guard let target = pagePoint(at: convert(event.locationInWindow, from: nil)) else { return }
+        submit(.drag(page: target.page, x: target.x, y: target.y))
     }
 
     // MARK: Keyboard
@@ -295,57 +364,62 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         default: nil
         }
         if let command {
-            perform { try editor.execute(command) }
+            commitInput()
+            submit(.command(command))
         } else if selector == #selector(insertTab(_:)) {
-            perform { try editor.insertText("\t") }
-        } else if selector == #selector(cancelOperation(_:)) {
-            perform { try editor.cancelMarkedText() }
+            insertText("\t", replacementRange: NSRange(location: NSNotFound, length: 0))
+        } else if selector == #selector(cancelOperation(_:)), !markedText.isEmpty {
+            if !localComposition { submit(.cancelMarked) }
+            clearMarkedText()
         }
     }
 
     // MARK: Menu actions
 
     @objc func undo(_ sender: Any?) {
-        perform { try editor.undo() }
+        commitInput()
+        submit(.undo)
     }
 
     @objc func redo(_ sender: Any?) {
-        perform { try editor.redo() }
+        commitInput()
+        submit(.redo)
     }
 
     @objc func copy(_ sender: Any?) {
-        guard let text = try? editor.copy() else { return NSSound.beep() }
+        commitInput()
+        guard let text = try? engine.sync(timeout: 5, { try $0.copy() }) else { return NSSound.beep() }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    /// Copy, then delete the selection as one more edit.
     @objc func cut(_ sender: Any?) {
-        var text: String?
-        perform { text = try editor.cut() }
-        guard let text else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        copy(sender)
+        submit(.command(.deleteBackward))
     }
 
     @objc func paste(_ sender: Any?) {
         guard let text = NSPasteboard.general.string(forType: .string) else { return NSSound.beep() }
-        perform { try editor.paste(text) }
+        commitInput()
+        submit(.paste(text))
     }
 
     override func selectAll(_ sender: Any?) {
-        perform { try editor.execute(.selectAll) }
+        commitInput()
+        submit(.command(.selectAll))
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case #selector(undo(_:)):
-            return editor.isEditing && ((try? session.info().canUndo) ?? false)
+            return snapshot.canUndo
         case #selector(redo(_:)):
-            return editor.isEditing && ((try? session.info().canRedo) ?? false)
+            return snapshot.canRedo
         case #selector(copy(_:)), #selector(cut(_:)):
-            return !(editor.selection?.isCollapsed ?? true)
+            return !(snapshot.selection?.isCollapsed ?? true)
         case #selector(paste(_:)):
-            return editor.isEditing && NSPasteboard.general.string(forType: .string) != nil
+            return snapshot.selection != nil && NSPasteboard.general.string(forType: .string) != nil
         default:
             return true
         }
@@ -359,26 +433,48 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
 
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
-        if replacementRange.location != NSNotFound, !editor.hasMarkedText {
+        if markedText.isEmpty {
             selectParagraphRange(replacementRange)
         }
-        perform { try editor.insertText(text) }
+        submitInsert(text)
+        clearMarkedText()
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
-        if replacementRange.location != NSNotFound, !editor.hasMarkedText {
-            selectParagraphRange(replacementRange)
+        guard !text.isEmpty else {
+            if !markedText.isEmpty, !localComposition { submit(.cancelMarked) }
+            return clearMarkedText()
         }
-        perform { try editor.setMarkedText(text) }
+        if markedText.isEmpty {
+            // Replacing existing text (e.g. 한자 conversion) needs the engine.
+            localComposition = replacementRange.location == NSNotFound && usesLocalComposition
+            markedStart = selectParagraphRange(replacementRange)
+                ?? snapshot.selection.map { $0.start.scalarOffset + echoText.unicodeScalars.count }
+        }
+        markedText = text
+        if localComposition {
+            updateOverlay()
+        } else {
+            engine.submit(.mark(text))
+        }
     }
 
     func unmarkText() {
-        perform { try editor.commitMarkedText() }
+        guard !markedText.isEmpty else { return }
+        if localComposition {
+            submitInsert(markedText)
+        } else {
+            submit(.commitMarked)
+        }
+        clearMarkedText()
     }
 
     func selectedRange() -> NSRange {
-        guard let selection = editor.selection else { return NSRange(location: NSNotFound, length: 0) }
+        if let markedStart, !markedText.isEmpty {
+            return NSRange(location: markedStart + markedText.utf16.count, length: 0)
+        }
+        guard let selection = snapshot.selection else { return NSRange(location: NSNotFound, length: 0) }
         guard selection.anchor.paragraph == selection.focus.paragraph else {
             return NSRange(location: selection.focus.scalarOffset, length: 0)
         }
@@ -387,20 +483,20 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     }
 
     func markedRange() -> NSRange {
-        guard let start = editor.markedStart, !editor.markedText.isEmpty else {
-            return NSRange(location: NSNotFound, length: 0)
-        }
-        return NSRange(location: start.scalarOffset, length: editor.markedText.utf16.count)
+        guard let markedStart, !markedText.isEmpty else { return NSRange(location: NSNotFound, length: 0) }
+        return NSRange(location: markedStart, length: markedText.utf16.count)
     }
 
     func hasMarkedText() -> Bool {
-        editor.hasMarkedText
+        !markedText.isEmpty
     }
 
     /// Lets input methods read text before converting it, e.g. 한자 conversion
     /// of the syllable before the caret (option-return).
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        guard range.location != NSNotFound, let context = try? editor.surroundingText() else { return nil }
+        guard range.location != NSNotFound,
+              let context = try? engine.sync(timeout: 1, { try $0.surroundingText() })
+        else { return nil }
         let scalars = Array(context.text.unicodeScalars)
         let lower = max(range.location - context.absoluteStartScalar, 0)
         let upper = min(range.location + range.length - context.absoluteStartScalar, scalars.count)
@@ -416,7 +512,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     }
 
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-        let rect = markedRects.first ?? caretRect ?? selectionRects.first ?? .zero
+        let rect = overlayRect ?? markedRects.first ?? caretRect ?? selectionRects.first ?? .zero
         guard let window else { return .zero }
         return window.convertToScreen(convert(rect, to: nil))
     }
@@ -425,11 +521,12 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         NSNotFound
     }
 
-    /// Selects a range given in this view's NSTextInputClient coordinates.
-    private func selectParagraphRange(_ range: NSRange) {
-        guard let focus = editor.selection?.focus else { return }
-        var anchor = focus
-        anchor.scalarOffset = range.location
-        perform { try editor.select(TextSelection(anchor: anchor, focus: anchor.offset(by: range.length))) }
+    /// Selects a range given in NSTextInputClient coordinates (see above) and
+    /// returns its start; does nothing for NSNotFound.
+    @discardableResult
+    private func selectParagraphRange(_ range: NSRange) -> Int? {
+        guard range.location != NSNotFound else { return nil }
+        submit(.selectInFocusParagraph(location: range.location, length: range.length))
+        return range.location
     }
 }

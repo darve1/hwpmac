@@ -16,6 +16,8 @@ settings:
     # libraries it needs (from `cargo rustc ... --print native-static-libs`).
     LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/build/native/lib
     OTHER_LDFLAGS: -lc++ -framework ApplicationServices -framework CoreFoundation -liconv
+    # The staged rhwp library is built for Apple silicon only.
+    ARCHS: arm64
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_STYLE: Manual
     ENABLE_HARDENED_RUNTIME: YES
@@ -98,6 +100,17 @@ targets:
     sources:
       - App/Sources/Engine
       - Tools/RenderSnapshot
+    dependencies:
+      - package: Rhwp
+        product: Rhwp
+    scheme: {}
+
+  hwpmac-latency:
+    type: tool
+    platform: macOS
+    sources:
+      - App/Sources/Engine
+      - Tools/Latency
     dependencies:
       - package: Rhwp
         product: Rhwp

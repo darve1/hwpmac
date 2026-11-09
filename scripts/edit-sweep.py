@@ -13,6 +13,7 @@ import json
 import subprocess
 import sys
 import time
+import unicodedata
 from pathlib import Path
 
 
@@ -25,11 +26,13 @@ def main():
     results = output / "results.jsonl"
     done = set()
     if results.exists():
-        done = {json.loads(line)["input"] for line in results.read_text().splitlines() if line.strip()}
+        done = {unicodedata.normalize("NFC", json.loads(line)["input"])
+                for line in results.read_text().splitlines() if line.strip()}
 
     with results.open("a") as sink, (output / "stderr.log").open("a") as log:
         for index, path in enumerate(inputs):
-            name = Path(path).name
+            # macOS file names may be NFD while results hold whatever the tool printed.
+            name = unicodedata.normalize("NFC", Path(path).name)
             if name in done:
                 continue
             workdir = output / "out" / f"{index:04d}"

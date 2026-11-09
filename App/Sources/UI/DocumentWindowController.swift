@@ -6,8 +6,8 @@ final class DocumentWindowController: NSWindowController {
     private let scrollView = NSScrollView()
     private let pagesView: PagesView
 
-    init(editor: DocumentEditor, pageSizes: [CGSize]) {
-        pagesView = PagesView(editor: editor, pageSizes: pageSizes)
+    init(engine: DocumentEngine) {
+        pagesView = PagesView(engine: engine)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 1000),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -30,8 +30,8 @@ final class DocumentWindowController: NSWindowController {
         pagesView.onStatus = { [weak window] message in
             window?.subtitle = message ?? ""
         }
-        pagesView.onDocumentChange = { [weak self] in
-            (self?.document as? HwpDocument)?.syncEditedState()
+        pagesView.onDocumentChange = { [weak self] snapshot in
+            (self?.document as? HwpDocument)?.syncEditedState(isDirty: snapshot.isDirty)
         }
         window.makeFirstResponder(pagesView)
         pagesView.beginEditingAtStart()

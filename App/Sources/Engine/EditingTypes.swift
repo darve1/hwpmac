@@ -4,14 +4,14 @@ import Foundation
 
 // Swift mirrors of the rhwp native host ABI v1 editing types.
 
-struct CellPathEntry: Codable, Equatable {
+struct CellPathEntry: Codable, Equatable, Sendable {
     var control: Int
     var cell: Int
     var paragraph: Int
 }
 
 /// A text position. `scalarOffset` counts Unicode scalars within the paragraph.
-struct TextPosition: Codable, Equatable {
+struct TextPosition: Codable, Equatable, Sendable {
     var section: Int
     var paragraph: Int
     var scalarOffset: Int
@@ -31,7 +31,7 @@ struct TextPosition: Codable, Equatable {
     }
 }
 
-struct TextSelection: Codable, Equatable {
+struct TextSelection: Codable, Equatable, Sendable {
     var anchor: TextPosition
     var focus: TextPosition
 
@@ -61,15 +61,15 @@ struct SessionInfo: Decodable {
 }
 
 /// Caret geometry in page layout pixels; `y` is the top of the caret.
-struct CaretRect: Decodable {
+struct CaretRect: Decodable, Sendable {
     var page: Int
     var x: Double
     var y: Double
     var height: Double
 }
 
-struct SelectionRect: Decodable {
-    struct Bounds: Decodable {
+struct SelectionRect: Decodable, Sendable {
+    struct Bounds: Decodable, Sendable {
         var x: Double
         var y: Double
         var width: Double
@@ -93,7 +93,7 @@ struct HitTestResult: Decodable {
     var caret: CaretRect?
 }
 
-enum EditCommand {
+enum EditCommand: Sendable {
     case moveLeft(extend: Bool)
     case moveRight(extend: Bool)
     case home(extend: Bool)
