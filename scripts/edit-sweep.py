@@ -6,7 +6,10 @@ hangs or crashes the engine is recorded as such instead of stopping the
 sweep. Results are appended as JSON lines; documents already in the results
 file are skipped, so an interrupted sweep can be resumed.
 
-usage: edit-sweep.py <edit-check-binary> <output-dir> <timeout-seconds> <input>...
+--format (L2 formatting check) and --cell (L3 table-cell edit) are passed on
+to the tool.
+
+usage: edit-sweep.py [--format | --cell] <edit-check-binary> <output-dir> <timeout-seconds> <input>...
 """
 
 import json
@@ -18,10 +21,13 @@ from pathlib import Path
 
 
 def main():
-    if len(sys.argv) < 5:
+    tool_flags = {"--format", "--cell"}
+    flags = [arg for arg in sys.argv[1:] if arg in tool_flags]
+    args = [arg for arg in sys.argv[1:] if arg not in tool_flags]
+    if len(args) < 4:
         sys.exit(__doc__)
-    tool, output, timeout = sys.argv[1], Path(sys.argv[2]), float(sys.argv[3])
-    inputs = sys.argv[4:]
+    tool, output, timeout = args[0], Path(args[1]), float(args[2])
+    inputs = args[3:]
     output.mkdir(parents=True, exist_ok=True)
     results = output / "results.jsonl"
     done = set()
@@ -39,7 +45,7 @@ def main():
             started = time.monotonic()
             try:
                 completed = subprocess.run(
-                    [tool, str(workdir), path], capture_output=True, text=True, timeout=timeout
+                    [tool, *flags, str(workdir), path], capture_output=True, text=True, timeout=timeout
                 )
                 log.write(completed.stderr)
                 lines = [line for line in completed.stdout.splitlines() if line.strip()]
