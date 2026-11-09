@@ -7,7 +7,11 @@
 // a window titled after it appears. Needs Accessibility permission for the
 // terminal. Prints one JSON line per file.
 //
-// usage: hwpmac-viewer-check <file>...
+// With --stats it also brings the viewer to the front (its menus only work
+// there), opens 파일 > 문서 정보… > 문서 통계 and records Hancom's counts:
+// characters, paragraphs, pages, tables/pictures/text boxes and so on.
+//
+// usage: hwpmac-viewer-check [--stats] <file>...
 
 import AppKit
 import ApplicationServices
@@ -75,7 +79,52 @@ func quitViewer() {
     while runningViewer() != nil, Date() < deadline { wait(0.2) }
 }
 
-func check(_ file: URL) -> [String: Any] {
+/// The first element under `element` titled `title`.
+func findElement(titled title: String, in element: AXUIElement, depth: Int = 0) -> AXUIElement? {
+    guard depth < 12 else { return nil }
+    if (attribute(element, kAXTitleAttribute as String) as String?) == title { return element }
+    for child: AXUIElement in attribute(element, kAXChildrenAttribute as String) ?? [] {
+        if let found = findElement(titled: title, in: child, depth: depth + 1) { return found }
+    }
+    return nil
+}
+
+/// The 문서 통계 labels, in the order the viewer lists them before their values.
+let statisticsLabels = ["글자(공백 포함)", "글자(공백 제외)", "글자에 포함된 한자 수", "낱말", "줄", "문단", "쪽",
+                        "원고지(200자 기준)", "표, 그림, 글상자"]
+
+/// Opens 파일 > 문서 정보… > 문서 통계 in the frontmost viewer and reads the counts.
+func readStatistics(_ app: NSRunningApplication) -> [String: Int]? {
+    app.activate()
+    wait(1)
+    let element = AXUIElementCreateApplication(app.processIdentifier)
+    guard let menuBar: AXUIElement = attribute(element, kAXMenuBarAttribute as String),
+          let item = findElement(titled: "문서 정보…", in: menuBar)
+    else { return nil }
+    AXUIElementPerformAction(item, kAXPressAction as CFString)
+    var info: AXUIElement?
+    let deadline = Date(timeIntervalSinceNow: 5)
+    while info == nil, Date() < deadline {
+        wait(0.3)
+        let windows: [AXUIElement] = attribute(element, kAXWindowsAttribute as String) ?? []
+        info = windows.first { (attribute($0, kAXTitleAttribute as String) as String?) == "문서 정보" }
+    }
+    guard let info, let tab = findElement(titled: "문서 통계", in: info) else { return nil }
+    AXUIElementPerformAction(tab, kAXPressAction as CFString)
+    wait(0.8)
+    var strings: [String] = []
+    texts(in: info, into: &strings)
+    if let ok = findElement(titled: "확인", in: info) {
+        AXUIElementPerformAction(ok, kAXPressAction as CFString)
+    }
+    // Labels come first, then the values in the same order.
+    guard let last = strings.firstIndex(of: statisticsLabels.last!) else { return nil }
+    let values = strings[(last + 1)...].compactMap { Int($0.replacingOccurrences(of: ",", with: "")) }
+    guard values.count >= statisticsLabels.count else { return nil }
+    return Dictionary(uniqueKeysWithValues: zip(statisticsLabels, values))
+}
+
+func check(_ file: URL, statistics: Bool) -> [String: Any] {
     quitViewer()
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.activates = false
@@ -118,6 +167,11 @@ func check(_ file: URL) -> [String: Any] {
         if windowTitles.contains(where: { $0.contains(stem) }) || !dialogTexts.isEmpty { break }
     } while Date() < deadline
 
+    let opened = windowTitles.contains { $0.contains(stem) } && dialogTexts.isEmpty
+    var counts: [String: Int]?
+    if statistics, opened, let app = runningViewer() {
+        counts = readStatistics(app)
+    }
     var visible: [String] = []
     if let app = runningViewer() {
         let element = AXUIElementCreateApplication(app.processIdentifier)
@@ -127,7 +181,8 @@ func check(_ file: URL) -> [String: Any] {
     }
     let result: [String: Any] = [
         "file": file.lastPathComponent,
-        "opened": windowTitles.contains { $0.contains(stem) } && dialogTexts.isEmpty,
+        "opened": opened,
+        "statistics": counts ?? NSNull(),
         "windowTitles": windowTitles,
         "dialog": dialogTexts,
         "dismissedRestorePrompt": dismissedRestorePrompt,
@@ -137,8 +192,9 @@ func check(_ file: URL) -> [String: Any] {
     return result
 }
 
-for path in CommandLine.arguments.dropFirst() {
-    let result = check(URL(fileURLWithPath: path))
+let statistics = CommandLine.arguments.contains("--stats")
+for path in CommandLine.arguments.dropFirst() where path != "--stats" {
+    let result = check(URL(fileURLWithPath: path), statistics: statistics)
     let json = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
     print(String(decoding: json, as: UTF8.self))
     fflush(stdout)
