@@ -201,7 +201,7 @@ final class RhwpSession {
     func setEditorMarks(_ marks: EditorMarks) throws {
         _ = try request(["op": "setEditorMarks", "marks": [
             "paragraphMarks": marks.paragraphMarks, "controlCodes": marks.controlCodes,
-            "transparentBorders": marks.transparentBorders,
+            "transparentBorders": marks.transparentBorders, "clip": marks.clip,
         ]])
     }
 

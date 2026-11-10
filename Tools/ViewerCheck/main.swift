@@ -11,7 +11,13 @@
 // there), opens 파일 > 문서 정보… > 문서 통계 and records Hancom's counts:
 // characters, paragraphs, pages, tables/pictures/text boxes and so on.
 //
-// usage: hwpmac-viewer-check [--stats] <file>...
+// --activate brings the viewer to the front when it opens each file: on a
+// busy or idle-for-long session it may not open documents in the background.
+//
+// --wait N gives the viewer N seconds (default 30) to show the document; large
+// files on a busy machine can need more.
+//
+// usage: hwpmac-viewer-check [--stats] [--wait N] <file>...
 
 import AppKit
 import ApplicationServices
@@ -124,10 +130,10 @@ func readStatistics(_ app: NSRunningApplication) -> [String: Int]? {
     return Dictionary(uniqueKeysWithValues: zip(statisticsLabels, values))
 }
 
-func check(_ file: URL, statistics: Bool) -> [String: Any] {
+func check(_ file: URL, statistics: Bool, windowWait: TimeInterval, activate: Bool) -> [String: Any] {
     quitViewer()
     let configuration = NSWorkspace.OpenConfiguration()
-    configuration.activates = false
+    configuration.activates = activate
     // Don't restore windows from earlier runs.
     configuration.arguments = ["-ApplePersistenceIgnoreState", "YES"]
     let launched = DispatchSemaphore(value: 0)
@@ -140,7 +146,7 @@ func check(_ file: URL, statistics: Bool) -> [String: Any] {
     var windowTitles: [String] = []
     var dialogTexts: [String] = []
     var dismissedRestorePrompt = false
-    let deadline = Date(timeIntervalSinceNow: 30)
+    let deadline = Date(timeIntervalSinceNow: windowWait)
     repeat {
         wait(0.5)
         guard let app = runningViewer() else { continue }
@@ -193,8 +199,15 @@ func check(_ file: URL, statistics: Bool) -> [String: Any] {
 }
 
 let statistics = CommandLine.arguments.contains("--stats")
-for path in CommandLine.arguments.dropFirst() where path != "--stats" {
-    let result = check(URL(fileURLWithPath: path), statistics: statistics)
+let activate = CommandLine.arguments.contains("--activate")
+var paths = Array(CommandLine.arguments.dropFirst()).filter { $0 != "--stats" && $0 != "--activate" }
+var windowWait: TimeInterval = 30
+if let flag = paths.firstIndex(of: "--wait"), paths.indices.contains(flag + 1), let seconds = TimeInterval(paths[flag + 1]) {
+    windowWait = seconds
+    paths.removeSubrange(flag...(flag + 1))
+}
+for path in paths {
+    let result = check(URL(fileURLWithPath: path), statistics: statistics, windowWait: windowWait, activate: activate)
     let json = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
     print(String(decoding: json, as: UTF8.self))
     fflush(stdout)

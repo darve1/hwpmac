@@ -122,6 +122,10 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
             if cached?.scale != scale || cached?.revision != snapshot.revision {
                 requestRender(page, scale: scale)
             }
+            if grid.visible, let corner = gridCorner {
+                grid.draw(in: rect, origin: CGPoint(x: rect.minX + corner.x, y: rect.minY + corner.y),
+                          scale: Double(enclosingScrollView?.magnification ?? 1))
+            }
         }
 
         NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).setFill()
@@ -146,8 +150,17 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         echoValid ? echo.map(\.text).joined() : ""
     }
 
-    /// A frame with eight handles around the picked object.
+    /// A frame with eight handles around the picked object; plain frames
+    /// around the ones added with Shift-click.
     private func drawSelectedObject() {
+        NSColor.controlAccentColor.setStroke()
+        for extra in extraObjects {
+            guard let rect = viewRect(page: extra.page, x: extra.frame.minX, y: extra.frame.minY,
+                                      width: extra.frame.width, height: extra.frame.height) else { continue }
+            let frame = NSBezierPath(rect: rect.insetBy(dx: -0.5, dy: -0.5))
+            frame.setLineDash([3, 2], count: 2, phase: 0)
+            frame.stroke()
+        }
         guard let selected = selectedObject,
               let rect = viewRect(page: selected.page, x: selected.frame.minX, y: selected.frame.minY,
                                   width: selected.frame.width, height: selected.frame.height) else { return }
@@ -296,7 +309,16 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         if snapshot.contentsChanged {
             setNeedsDisplay(visibleRect)
             onDocumentChange?(snapshot)
+            extraObjects = []
             refreshSelectedObject()
+            if selectsResultObject, let result = snapshot.lastResult, let section = result["section"]?.number,
+               let paragraph = result["paragraph"]?.number, let control = result["control"]?.number {
+                let address = ObjectAddress(section: Int(section), paragraph: Int(paragraph), control: Int(control))
+                selectedObject = pageRects.indices.lazy.compactMap { page in
+                    self.pickableObjects(page: page).first { $0.address == address }
+                }.first
+            }
+            selectsResultObject = false
         }
         if let result = snapshot.lastResult {
             onSearchResult?(result)
@@ -403,9 +425,9 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         window?.makeFirstResponder(self)
         commitInput()
         guard let target = pagePoint(at: convert(event.locationInWindow, from: nil)) else { return }
-        if !event.modifierFlags.contains(.shift), let hit = object(atPage: target.page, x: target.x, y: target.y) {
-            selectedObject = hit
-            return
+        if let hit = object(atPage: target.page, x: target.x, y: target.y) {
+            if !event.modifierFlags.contains(.shift) { return selectObject(hit) }
+            if selectedObject != nil { return toggleObjectInSelection(hit) }
         }
         selectedObject = nil
         submit(.click(page: target.page, x: target.x, y: target.y,
@@ -618,6 +640,16 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         submit(.action(.toggleBullet(nil)))
     }
 
+    /// 글머리표 모양: the menu item's title is the bullet character.
+    @objc func applyBullet(_ sender: NSMenuItem) {
+        commitInput()
+        // A toggle turns bullets off when they are on; set the bullet afresh instead.
+        if snapshot.paraProperties?["headType"]?.string == "Bullet" {
+            submit(.action(.paraFormat(["headType": .string("None")])))
+        }
+        submit(.action(.toggleBullet(sender.title)))
+    }
+
     /// 10 % steps, down to 5 % as in the web editor.
     @objc func increaseLineSpacing(_ sender: Any?) { stepLineSpacing(by: 10) }
     @objc func decreaseLineSpacing(_ sender: Any?) { stepLineSpacing(by: -10) }
@@ -686,8 +718,21 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     }
 
     private(set) var selectedObject: SelectedObject? {
-        didSet { if oldValue != selectedObject { needsDisplay = true } }
+        didSet {
+            if oldValue != selectedObject { needsDisplay = true }
+            if selectedObject == nil { extraObjects = [] }
+        }
     }
+
+    /// Objects added to the selection with Shift-click, for 개체 묶기.
+    private(set) var extraObjects: [SelectedObject] = [] {
+        didSet { if oldValue != extraObjects { needsDisplay = true } }
+    }
+
+    var selectedObjects: [SelectedObject] { (selectedObject.map { [$0] } ?? []) + extraObjects }
+
+    /// Set while a 개체 묶기 is pending: the group it makes becomes the selection.
+    private var selectsResultObject = false
 
     /// Body pictures and shapes on `page` that a click can pick (not behind
     /// text, not in cells, headers or footers).
@@ -695,7 +740,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         guard snapshot.selection != nil, case let .array(items)? = (try? engine.query(.pageObjects(page: page)))?["controls"]
         else { return [] }
         return items.compactMap { item in
-            guard let kind = item["type"]?.string, kind == "image" || kind == "shape",
+            guard let kind = item["type"]?.string, ["image", "shape", "group"].contains(kind),
                   item["wrap"]?.string != "behindText", item["cellIdx"] == nil, item["headerFooter"] == nil,
                   let section = item["secIdx"]?.number, let paragraph = item["paraIdx"]?.number,
                   let control = item["controlIdx"]?.number,
@@ -715,7 +760,21 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     }
 
     func selectObject(_ object: SelectedObject?) {
+        extraObjects = []
         selectedObject = object
+    }
+
+    /// Shift-click: adds an object to the selection, or takes it out.
+    func toggleObjectInSelection(_ object: SelectedObject) {
+        guard let primary = selectedObject else { return selectObject(object) }
+        if primary.address == object.address {
+            selectedObject = extraObjects.first
+            extraObjects = Array(extraObjects.dropFirst())
+        } else if let index = extraObjects.firstIndex(where: { $0.address == object.address }) {
+            extraObjects.remove(at: index)
+        } else {
+            extraObjects.append(object)
+        }
     }
 
     /// After an edit the object may have moved or gone.
@@ -727,7 +786,6 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         }.first
     }
 
-    private var selectedPicture: SelectedObject? { selectedObject?.kind == "image" ? selectedObject : nil }
 
     @objc func insertPicture(_ sender: Any?) {
         guard let window, inBody else { return NSSound.beep() }
@@ -774,6 +832,17 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
                                       height: Int(height.rounded()), pixelWidth: pixelWidth, pixelHeight: pixelHeight)))
     }
 
+    /// 도형: the menu item's tag picks the kind; 30 × 20 mm, a line 30 mm long.
+    static let shapeKinds = ["rectangle", "ellipse", "line", "textbox"]
+
+    @objc func insertShape(_ sender: NSMenuItem) {
+        guard inBody, Self.shapeKinds.indices.contains(sender.tag) else { return NSSound.beep() }
+        commitInput()
+        let kind = Self.shapeKinds[sender.tag]
+        let millimetre = PageSetupSheet.unitsPerMillimetre
+        submit(.action(.insertShape(kind: kind, width: Int(30 * millimetre), height: kind == "line" ? 0 : Int(20 * millimetre))))
+    }
+
     @objc func deleteSelectedObject(_ sender: Any?) {
         guard let selected = selectedObject else { return NSSound.beep() }
         selectedObject = nil
@@ -785,73 +854,77 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         submit(.action(.objectOrder(selected.address, operation)))
     }
 
+    /// 개체 묶기: the selected pictures and shapes (Shift-click to add) of one section.
+    @objc func groupObjects(_ sender: Any?) {
+        let objects = selectedObjects
+        guard objects.count >= 2, let section = objects.first?.address.section,
+              objects.allSatisfy({ $0.address.section == section }) else { return NSSound.beep() }
+        selectsResultObject = true
+        submit(.action(.groupObjects(section: section, objects: objects.map(\.address))))
+    }
+
+    /// 개체 풀기: the selected group back into its objects.
+    @objc func ungroupObject(_ sender: Any?) {
+        guard let group = selectedObject, group.kind == "group" else { return NSSound.beep() }
+        selectedObject = nil
+        submit(.action(.ungroupObject(group.address)))
+    }
+
     @objc func bringObjectToFront(_ sender: Any?) { reorder("front") }
     @objc func bringObjectForward(_ sender: Any?) { reorder("forward") }
     @objc func sendObjectBackward(_ sender: Any?) { reorder("backward") }
     @objc func sendObjectToBack(_ sender: Any?) { reorder("back") }
 
-    private func pictureProperties(_ picture: SelectedObject) -> JSONValue {
-        (try? engine.query(.pictureProperties(picture.address))) ?? .null
+    private func objectProperties(_ address: ObjectAddress) -> JSONValue {
+        (try? engine.query(.objectProperties(address))) ?? .null
     }
 
     /// Quarter turns, as 한글's 개체 회전 does.
-    private func rotatePicture(by degrees: Double) {
-        guard let picture = selectedPicture else { return NSSound.beep() }
-        let angle = pictureProperties(picture)["rotationAngle"]?.number ?? 0
+    private func rotateObject(by degrees: Double) {
+        guard let object = selectedObject else { return NSSound.beep() }
+        let angle = objectProperties(object.address)["rotationAngle"]?.number ?? 0
         var next = (angle + degrees).truncatingRemainder(dividingBy: 360)
         if next < 0 { next += 360 }
-        submit(.action(.setPictureProperties(picture.address, ["rotationAngle": .number(next)])))
+        submit(.action(.setObjectProperties(object.address, ["rotationAngle": .number(next)])))
     }
 
-    @objc func rotatePictureRight(_ sender: Any?) { rotatePicture(by: 90) }
-    @objc func rotatePictureLeft(_ sender: Any?) { rotatePicture(by: -90) }
+    @objc func rotatePictureRight(_ sender: Any?) { rotateObject(by: 90) }
+    @objc func rotatePictureLeft(_ sender: Any?) { rotateObject(by: -90) }
 
-    private func flipPicture(_ key: String) {
-        guard let picture = selectedPicture else { return NSSound.beep() }
-        let flipped = pictureProperties(picture)[key]?.bool ?? false
-        submit(.action(.setPictureProperties(picture.address, [key: .bool(!flipped)])))
+    private func flipObject(_ key: String) {
+        guard let object = selectedObject else { return NSSound.beep() }
+        let flipped = objectProperties(object.address)[key]?.bool ?? false
+        submit(.action(.setObjectProperties(object.address, [key: .bool(!flipped)])))
     }
 
-    @objc func flipPictureHorizontally(_ sender: Any?) { flipPicture("horzFlip") }
-    @objc func flipPictureVertically(_ sender: Any?) { flipPicture("vertFlip") }
+    @objc func flipPictureHorizontally(_ sender: Any?) { flipObject("horzFlip") }
+    @objc func flipPictureVertically(_ sender: Any?) { flipObject("vertFlip") }
 
-    /// 개체 속성…: size in millimetres, keeping the ratio if asked.
+    /// 개체 속성…: size, rotation and caption; line and fill for shapes.
     @objc func showObjectProperties(_ sender: Any?) {
-        guard let window, let picture = selectedPicture else { return NSSound.beep() }
-        let props = pictureProperties(picture)
-        let millimetres = { (units: Double?) in String(format: "%.1f", (units ?? 0) / PageSetupSheet.unitsPerMillimetre) }
-        let width = NSTextField(string: millimetres(props["width"]?.number))
-        let height = NSTextField(string: millimetres(props["height"]?.number))
-        let keepRatio = NSButton(checkboxWithTitle: "가로세로 비율 유지", target: nil, action: nil)
-        keepRatio.state = .on
-        for field in [width, height] { field.widthAnchor.constraint(equalToConstant: 70).isActive = true }
-        let grid = NSGridView(views: [[NSTextField(labelWithString: "너비 (mm):"), width],
-                                      [NSTextField(labelWithString: "높이 (mm):"), height],
-                                      [NSView(), keepRatio]])
-        grid.frame = NSRect(x: 0, y: 0, width: 240, height: 84)
-        let alert = NSAlert()
-        alert.messageText = "개체 속성"
-        alert.accessoryView = grid
-        alert.addButton(withTitle: "설정")
-        alert.addButton(withTitle: "취소")
-        let original = (props["width"]?.number ?? 1, props["height"]?.number ?? 1)
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
-            var newWidth = width.doubleValue * PageSetupSheet.unitsPerMillimetre
-            var newHeight = height.doubleValue * PageSetupSheet.unitsPerMillimetre
-            if keepRatio.state == .on, original.0 > 0 {
-                // The field the user changed decides; the other follows.
-                if abs(newWidth - original.0) >= abs(newHeight - original.1) {
-                    newHeight = newWidth * original.1 / original.0
-                } else {
-                    newWidth = newHeight * original.0 / original.1
-                }
-            }
-            guard newWidth >= 1, newHeight >= 1 else { return NSSound.beep() }
-            self?.submit(.action(.setPictureProperties(picture.address, [
-                "width": .number(newWidth.rounded()), "height": .number(newHeight.rounded()),
-            ])))
+        guard let window, let object = selectedObject else { return NSSound.beep() }
+        let props = objectProperties(object.address)
+        guard props != .null else { return NSSound.beep() }
+        ObjectPropertiesSheet.present(props, in: window) { [weak self] changed in
+            self?.submit(.action(.setObjectProperties(object.address, changed)))
         }
+    }
+
+    /// The top-level table holding the caret, as an object.
+    private var caretTable: ObjectAddress? {
+        guard let focus = snapshot.selection?.focus, let entry = focus.cellPath.first else { return nil }
+        return ObjectAddress(section: focus.section, paragraph: focus.paragraph, control: entry.control)
+    }
+
+    /// 캡션 넣기 / 빼기 on the selected picture or shape, else on the caret's table.
+    @objc func toggleCaption(_ sender: Any?) {
+        guard let address = selectedObject?.address ?? caretTable else { return NSSound.beep() }
+        commitInput()
+        let props = objectProperties(address)
+        let on = props["hasCaption"]?.bool != true
+        // A table gets 한글's default caption from the engine; pictures and shapes take the web editor's.
+        let changed = props["kind"]?.string == "table" ? ["hasCaption": JSONValue.bool(on)] : ObjectPropertiesSheet.caption(on)
+        submit(.action(.setObjectProperties(address, changed)))
     }
 
     // MARK: Links, bookmarks, symbols
@@ -957,6 +1030,34 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     @objc func toggleParagraphMarks(_ sender: Any?) { setMarks { $0.paragraphMarks.toggle() } }
     @objc func toggleControlCodes(_ sender: Any?) { setMarks { $0.controlCodes.toggle() } }
     @objc func toggleTransparentBorders(_ sender: Any?) { setMarks { $0.transparentBorders.toggle() } }
+    @objc func toggleClip(_ sender: Any?) { setMarks { $0.clip.toggle() } }
+
+    var grid = GridSettings.load() {
+        didSet {
+            grid.save()
+            needsDisplay = true
+        }
+    }
+
+    private var cachedGridCorner: (revision: UInt64, corner: CGPoint?)?
+
+    /// The body text corner of the caret's section in layout pixels, where the grid starts.
+    private var gridCorner: CGPoint? {
+        if let cached = cachedGridCorner, cached.revision == snapshot.revision { return cached.corner }
+        let page = (try? engine.query(.pageDef)) ?? .null
+        let corner = page["marginLeft"]?.number.map { left in
+            CGPoint(x: left / 75, y: ((page["marginTop"]?.number ?? 0) + (page["marginHeader"]?.number ?? 0)) / 75)
+        }
+        cachedGridCorner = (snapshot.revision, corner)
+        return corner
+    }
+
+    @objc func toggleGrid(_ sender: Any?) { grid.visible.toggle() }
+
+    @objc func showGridSettings(_ sender: Any?) {
+        guard let window else { return NSSound.beep() }
+        GridSettingsSheet.present(grid, in: window) { [weak self] in self?.grid = $0 }
+    }
 
     // MARK: Breaks and page setup
 
@@ -1002,6 +1103,149 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
             guard response == .alertFirstButtonReturn, (1...255).contains(count.integerValue) else { return }
             let units = Int((spacing.doubleValue * PageSetupSheet.unitsPerMillimetre).rounded())
             self?.submit(.action(.setColumns(count: count.integerValue, spacing: min(max(units, 0), Int(Int16.max)))))
+        }
+    }
+
+    /// 감추기…: what this paragraph hides from its page on.
+    @objc func showPageHide(_ sender: Any?) {
+        guard let window, inBody else { return NSSound.beep() }
+        commitInput()
+        let current = PageHide((try? engine.query(.pageHide)) ?? .null)
+        let options: [(title: String, path: WritableKeyPath<PageHide, Bool>)] = [
+            ("머리말", \.header), ("꼬리말", \.footer), ("바탕쪽", \.masterPage), ("쪽 테두리", \.border),
+            ("쪽 배경", \.fill), ("쪽 번호", \.pageNumber),
+        ]
+        let boxes = options.map { option -> NSButton in
+            let box = NSButton(checkboxWithTitle: option.title, target: nil, action: nil)
+            box.state = current[keyPath: option.path] ? .on : .off
+            return box
+        }
+        let stack = NSStackView(views: boxes)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.frame = NSRect(x: 0, y: 0, width: 200, height: 140)
+        let alert = NSAlert()
+        alert.messageText = "감추기"
+        alert.informativeText = "캐럿이 있는 문단의 쪽에서 감출 것"
+        alert.accessoryView = stack
+        alert.addButton(withTitle: "설정")
+        alert.addButton(withTitle: "취소")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            var hide = PageHide()
+            for (option, box) in zip(options, boxes) { hide[keyPath: option.path] = box.state == .on }
+            self?.submit(.action(.setPageHide(hide)))
+        }
+    }
+
+    /// 새 쪽 번호…: page numbers restart at a given number from the caret's page.
+    @objc func showNewPageNumber(_ sender: Any?) {
+        guard let window, inBody else { return NSSound.beep() }
+        commitInput()
+        let field = NSTextField(string: "1")
+        field.frame = NSRect(x: 0, y: 0, width: 80, height: 24)
+        let alert = NSAlert()
+        alert.messageText = "새 쪽 번호"
+        alert.informativeText = "캐럿이 있는 쪽부터 이 번호로 다시 매깁니다."
+        alert.accessoryView = field
+        alert.addButton(withTitle: "설정")
+        alert.addButton(withTitle: "취소")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, (1...9999).contains(field.integerValue) else { return }
+            self?.submit(.action(.newPageNumber(field.integerValue)))
+        }
+    }
+
+    private var caretInField: Bool {
+        inBody && ((try? engine.query(.fieldInfo))?["inField"]?.bool ?? false)
+    }
+
+    @objc func removeField(_ sender: Any?) {
+        commitInput()
+        submit(.action(.removeField))
+    }
+
+    /// 구역 설정…: start page number, what the first page hides, tab spacing.
+    @objc func showSectionSettings(_ sender: Any?) {
+        guard let window else { return }
+        if snapshot.selection == nil { beginEditingAtStart() }
+        commitInput()
+        let current = (try? engine.query(.sectionDef)) ?? .null
+        let start = NSTextField(string: String(Int(current["pageNum"]?.number ?? 0)))
+        let tab = NSTextField(string: String(format: "%.1f", (current["defaultTabSpacing"]?.number ?? 8000) / PageSetupSheet.unitsPerMillimetre))
+        for field in [start, tab] { field.widthAnchor.constraint(equalToConstant: 70).isActive = true }
+        let hides: [(key: String, title: String)] = [
+            ("hideHeader", "머리말"), ("hideFooter", "꼬리말"), ("hideMasterPage", "바탕쪽"), ("hideBorder", "쪽 테두리"), ("hideFill", "쪽 배경"),
+        ]
+        let boxes = hides.map { hide -> NSButton in
+            let box = NSButton(checkboxWithTitle: hide.title, target: nil, action: nil)
+            box.state = current[hide.key]?.bool == true ? .on : .off
+            return box
+        }
+        let hideStack = NSStackView(views: boxes)
+        hideStack.orientation = .vertical
+        hideStack.alignment = .leading
+        let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "시작 쪽 번호 (0: 이어서):"), start],
+            [NSTextField(labelWithString: "첫 쪽에서 감추기:"), hideStack],
+            [NSTextField(labelWithString: "기본 탭 간격 (mm):"), tab],
+        ])
+        grid.rowAlignment = .firstBaseline
+        grid.frame = NSRect(x: 0, y: 0, width: 300, height: 190)
+        let alert = NSAlert()
+        alert.messageText = "구역 설정"
+        alert.informativeText = "캐럿이 있는 구역에 적용합니다."
+        alert.accessoryView = grid
+        alert.addButton(withTitle: "설정")
+        alert.addButton(withTitle: "취소")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, start.integerValue >= 0 else { return }
+            var props: [String: JSONValue] = [
+                "pageNum": .number(Double(start.integerValue)),
+                "defaultTabSpacing": .number((tab.doubleValue * PageSetupSheet.unitsPerMillimetre).rounded()),
+            ]
+            for (hide, box) in zip(hides, boxes) { props[hide.key] = .bool(box.state == .on) }
+            self?.submit(.action(.setSectionDef(props)))
+        }
+    }
+
+    /// 쪽 테두리/배경…: a line around every page of the section, and a background colour.
+    @objc func showPageBorder(_ sender: Any?) {
+        guard let window else { return }
+        if snapshot.selection == nil { beginEditingAtStart() }
+        commitInput()
+        let current = (try? engine.query(.pageBorder)) ?? .null
+        let line = NSPopUpButton()
+        line.addItems(withTitles: ["없음", "실선", "점선", "이중선"])
+        let types = [0, 1, 3, 8]
+        line.selectItem(at: types.firstIndex(of: Int(current["borderTop"]?["type"]?.number ?? 0)) ?? 0)
+        let lineColor = NSColorWell()
+        lineColor.color = CharacterShapeSheet.color(current["borderTop"]?["color"]?.string) ?? .black
+        let fill = NSButton(checkboxWithTitle: "배경색", target: nil, action: nil)
+        fill.state = current["fillType"]?.string == "solid" ? .on : .off
+        let fillColor = NSColorWell()
+        fillColor.color = CharacterShapeSheet.color(current["fillColor"]?.string) ?? .white
+        for well in [lineColor, fillColor] { well.widthAnchor.constraint(equalToConstant: 44).isActive = true }
+        let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "테두리:"), NSStackView(views: [line, lineColor])],
+            [NSTextField(labelWithString: "배경:"), NSStackView(views: [fill, fillColor])],
+        ])
+        grid.frame = NSRect(x: 0, y: 0, width: 280, height: 60)
+        let alert = NSAlert()
+        alert.messageText = "쪽 테두리/배경"
+        alert.informativeText = "캐럿이 있는 구역의 모든 쪽에 적용합니다."
+        alert.accessoryView = grid
+        alert.addButton(withTitle: "설정")
+        alert.addButton(withTitle: "취소")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            let side: JSONValue = .object(["type": .number(Double(types[line.indexOfSelectedItem])), "width": .number(1),
+                                           "color": .string(CharacterShapeSheet.hex(lineColor.color))])
+            var props: [String: JSONValue] = ["borderLeft": side, "borderRight": side, "borderTop": side, "borderBottom": side]
+            props["fillType"] = .string(fill.state == .on ? "solid" : "none")
+            if fill.state == .on { props["fillColor"] = .string(CharacterShapeSheet.hex(fillColor.color)) }
+            self?.submit(.action(.setPageBorder(props)))
         }
     }
 
@@ -1094,6 +1338,54 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
             case 2: self?.applyTable(.insertColumn(right: false, count: number))
             default: self?.applyTable(.insertColumn(right: true, count: number))
             }
+        }
+    }
+
+    /// 계산식…: a formula for the caret's cell and how to show the result.
+    @objc func showCellFormula(_ sender: Any?) {
+        guard let window, snapshot.selection?.focus.cellPath.count == 1 else { return NSSound.beep() }
+        commitInput()
+        let formula = NSTextField(string: "=SUM(ABOVE)")
+        formula.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        let format = NSPopUpButton()
+        format.addItems(withTitles: ["기본", "정수", "소수 한 자리", "소수 두 자리"])
+        let commas = NSButton(checkboxWithTitle: "세 자리마다 쉼표", target: nil, action: nil)
+        let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "계산식:"), formula],
+            [NSTextField(labelWithString: "형식:"), NSStackView(views: [format, commas])],
+        ])
+        grid.frame = NSRect(x: 0, y: 0, width: 360, height: 60)
+        let alert = NSAlert()
+        alert.messageText = "계산식"
+        alert.informativeText = "예: =SUM(ABOVE), =AVG(LEFT), =A1+B1*2. 방향은 LEFT, RIGHT, ABOVE, BELOW."
+        alert.accessoryView = grid
+        alert.addButton(withTitle: "넣기")
+        alert.addButton(withTitle: "취소")
+        alert.window.initialFirstResponder = formula
+        alert.beginSheetModal(for: window) { [weak self] response in
+            let text = formula.stringValue.trimmingCharacters(in: .whitespaces)
+            guard response == .alertFirstButtonReturn, !text.isEmpty else { return }
+            let spec = ["%g", "%.0f", "%.1f", "%.2f"][format.indexOfSelectedItem] + (commas.state == .on ? "," : "")
+            self?.applyTable(.setCellFormula(formula: text.hasPrefix("=") ? text : "=" + text, format: spec))
+        }
+    }
+
+    /// 쉬운 계산식: the menu item's title holds the formula after a tab.
+    @objc func applyEasyFormula(_ sender: NSMenuItem) {
+        guard let formula = sender.representedObject as? String else { return }
+        applyTable(.setCellFormula(formula: formula, format: "%g"))
+    }
+
+    @objc func addThousandsSeparators(_ sender: Any?) { applyTable(.formatCellNumber("thousands")) }
+    @objc func addDecimalPlace(_ sender: Any?) { applyTable(.formatCellNumber("addDecimal")) }
+    @objc func removeDecimalPlace(_ sender: Any?) { applyTable(.formatCellNumber("removeDecimal")) }
+
+    @objc func showCellProperties(_ sender: Any?) {
+        guard let window, inTable else { return NSSound.beep() }
+        commitInput()
+        let current = (try? engine.query(.cellProperties)) ?? .null
+        CellPropertiesSheet.present(current, in: window) { [weak self] props in
+            self?.applyTable(.setCellProperties(props))
         }
     }
 
@@ -1241,17 +1533,26 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
             return snapshot.selection != nil
         case #selector(increaseIndent(_:)), #selector(decreaseIndent(_:)):
             return snapshot.selection != nil
-        case #selector(insertPicture(_:)):
+        case #selector(insertPicture(_:)), #selector(insertShape(_:)):
             return inBody
         case #selector(deleteSelectedObject(_:)):
             return selectedObject != nil
+        case #selector(groupObjects(_:)):
+            let objects = selectedObjects
+            return objects.count >= 2 && Set(objects.map(\.address.section)).count == 1
+        case #selector(ungroupObject(_:)):
+            return selectedObject?.kind == "group"
         case #selector(bringObjectToFront(_:)), #selector(bringObjectForward(_:)), #selector(sendObjectBackward(_:)),
              #selector(sendObjectToBack(_:)):
             // Stacking order is for shapes, as in the web editor.
-            return selectedObject?.kind == "shape"
+            return selectedObject?.kind == "shape" || selectedObject?.kind == "group"
         case #selector(showObjectProperties(_:)), #selector(rotatePictureRight(_:)), #selector(rotatePictureLeft(_:)),
              #selector(flipPictureHorizontally(_:)), #selector(flipPictureVertically(_:)):
-            return selectedPicture != nil
+            return selectedObject != nil
+        case #selector(toggleCaption(_:)):
+            guard let address = selectedObject?.address ?? caretTable else { return false }
+            menuItem.title = objectProperties(address)["hasCaption"]?.bool == true ? "캡션 빼기" : "캡션 넣기"
+            return true
         case #selector(editHyperlink(_:)), #selector(removeHyperlink(_:)), #selector(showSymbols(_:)):
             return snapshot.selection != nil
         case #selector(addBookmark(_:)):
@@ -1267,8 +1568,27 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         case #selector(toggleTransparentBorders(_:)):
             menuItem.state = snapshot.marks.transparentBorders ? .on : .off
             return true
+        case #selector(toggleGrid(_:)):
+            menuItem.state = grid.visible ? .on : .off
+            return true
+        case #selector(showGridSettings(_:)):
+            return true
+        case #selector(toggleClip(_:)):
+            menuItem.state = snapshot.marks.clip ? .on : .off
+            return true
+        case #selector(showSectionSettings(_:)), #selector(showPageBorder(_:)):
+            return true
         case #selector(insertPageBreak(_:)), #selector(insertColumnBreak(_:)):
             return inBody
+        case #selector(showPageHide(_:)), #selector(showNewPageNumber(_:)):
+            return inBody
+        case #selector(removeField(_:)):
+            return caretInField
+        case #selector(applyBullet(_:)):
+            return snapshot.selection != nil
+        case #selector(showCellProperties(_:)), #selector(showCellFormula(_:)), #selector(applyEasyFormula(_:)),
+             #selector(addThousandsSeparators(_:)), #selector(addDecimalPlace(_:)), #selector(removeDecimalPlace(_:)):
+            return snapshot.selection?.focus.cellPath.count == 1
         case #selector(setColumnCount(_:)), #selector(showColumnSettings(_:)):
             return true
         case #selector(showPageSetup(_:)):

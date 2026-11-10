@@ -4,6 +4,7 @@ import AppKit
 
 final class DocumentWindowController: NSWindowController, NSMenuItemValidation {
     private let scrollView = NSScrollView()
+    private let toolbarDelegate = DocumentToolbar()
     let pagesView: PagesView
 
     init(engine: any DocumentEngineClient) {
@@ -24,6 +25,8 @@ final class DocumentWindowController: NSWindowController, NSMenuItemValidation {
         scrollView.backgroundColor = .underPageBackgroundColor
         scrollView.documentView = pagesView
         window.contentView = scrollView
+        window.toolbar = toolbarDelegate.makeToolbar()
+        window.toolbarStyle = .unifiedCompact
         window.center()
         super.init(window: window)
 

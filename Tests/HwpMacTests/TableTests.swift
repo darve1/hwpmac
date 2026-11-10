@@ -127,6 +127,26 @@ final class TableTests: XCTestCase {
         XCTAssertFalse(split.isEmpty)
     }
 
+    func testEasyFormulaSumsTheCellsAboveAndSurvivesSave() throws {
+        insertTable(rows: 3, columns: 1)
+        insert("1200")
+        view.doCommand(by: #selector(NSResponder.moveDown(_:)))
+        settle()
+        insert("34")
+        view.doCommand(by: #selector(NSResponder.moveDown(_:)))
+        settle()
+        XCTAssertEqual(try focus.cellPath.first?.cell, 2)
+        let sum = NSMenuItem(title: "블록 합계", action: #selector(PagesView.applyEasyFormula(_:)), keyEquivalent: "")
+        sum.representedObject = "=SUM(ABOVE)"
+        XCTAssertTrue(view.validateMenuItem(sum))
+        view.applyEasyFormula(sum)
+        settle()
+        XCTAssertTrue(try savedText(.hwp).contains("1234"))
+        view.addThousandsSeparators(nil)
+        settle()
+        XCTAssertTrue(try savedText(.hwpx).contains("1,234"))
+    }
+
     func testRefusedEditExplainsWhyInKorean() {
         XCTAssertEqual(DocumentEngine.unsupportedMessage("a selection cannot cross a table-cell boundary"),
                        "선택 범위가 표 셀 경계를 넘을 수 없습니다.")
@@ -182,7 +202,7 @@ final class ObjectTests: XCTestCase {
         view.selectObject(picked)
         view.rotatePictureRight(nil)
         _ = try engine.sync { _ in }
-        XCTAssertEqual(try engine.query(.pictureProperties(picture.address))["rotationAngle"]?.number, 90)
+        XCTAssertEqual(try engine.query(.objectProperties(picture.address))["rotationAngle"]?.number, 90)
 
         view.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
         _ = try engine.sync { _ in }
@@ -190,5 +210,138 @@ final class ObjectTests: XCTestCase {
         XCTAssertNil(view.selectedObject)
         XCTAssertFalse(view.pickableObjects(page: 0).contains { $0.kind == "image" })
         XCTAssertEqual(try engine.documentText(), "그림 앞")
+    }
+}
+
+@MainActor
+final class ShapeTests: XCTestCase {
+    func testInsertShapeAndPickIt() throws {
+        let engine = try DocumentEngine(data: Data(), name: "shapes")
+        defer { engine.close() }
+        let view = PagesView(engine: engine)
+        view.beginEditingAtStart()
+        view.insertText("도형", replacementRange: NSRange(location: NSNotFound, length: 0))
+        let item = NSMenuItem(title: "타원", action: #selector(PagesView.insertShape(_:)), keyEquivalent: "")
+        item.tag = 1
+        // The menu command needs the view to know the caret is in body text.
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        view.insertShape(item)
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let shape = try XCTUnwrap(view.pickableObjects(page: 0).first { $0.kind == "shape" })
+        // 30 mm is about 113 layout pixels.
+        XCTAssertEqual(shape.frame.width, 30 / 25.4 * 96, accuracy: 1)
+        view.selectObject(view.object(atPage: 0, x: shape.frame.midX, y: shape.frame.midY))
+        XCTAssertEqual(view.selectedObject?.address, shape.address)
+        let front = NSMenuItem(title: "맨 앞으로", action: #selector(PagesView.bringObjectToFront(_:)), keyEquivalent: "")
+        XCTAssertTrue(view.validateMenuItem(front))
+        view.deleteSelectedObject(nil)
+        _ = try engine.sync { _ in }
+        XCTAssertFalse(view.pickableObjects(page: 0).contains { $0.kind == "shape" })
+    }
+    func testGroupAndUngroupShapes() throws {
+        let engine = try DocumentEngine(data: Data(), name: "group")
+        defer { engine.close() }
+        let view = PagesView(engine: engine)
+        view.beginEditingAtStart()
+        view.insertText("묶기", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        for tag in [0, 1] {
+            let item = NSMenuItem(title: "도형", action: #selector(PagesView.insertShape(_:)), keyEquivalent: "")
+            item.tag = tag
+            view.insertShape(item)
+            _ = try engine.sync { _ in }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+        let shapes = view.pickableObjects(page: 0).filter { $0.kind == "shape" }
+        XCTAssertEqual(shapes.count, 2)
+        let group = NSMenuItem(title: "개체 묶기", action: #selector(PagesView.groupObjects(_:)), keyEquivalent: "")
+        view.selectObject(shapes[0])
+        XCTAssertFalse(view.validateMenuItem(group))
+        view.toggleObjectInSelection(shapes[1])
+        XCTAssertEqual(view.selectedObjects.count, 2)
+        XCTAssertTrue(view.validateMenuItem(group))
+        view.groupObjects(group)
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let objects = view.pickableObjects(page: 0)
+        XCTAssertEqual(objects.map(\.kind), ["group"])
+        // The new group is selected, as in the web editor.
+        XCTAssertEqual(view.selectedObject?.kind, "group")
+        XCTAssertEqual(view.selectedObjects.count, 1)
+
+        let hwp = try engine.prepareSave(.hwp)
+        try engine.cancelSave(hwp.token)
+        let reopened = try DocumentEngine(data: hwp.data, name: "reopened")
+        defer { reopened.close() }
+        _ = try reopened.sync { try $0.select(.collapsed(at: .documentStart)) }
+        let reopenedObjects = try XCTUnwrap(reopened.query(.pageObjects(page: 0))["controls"])
+        guard case let .array(items) = reopenedObjects else { return XCTFail("no objects") }
+        XCTAssertEqual(items.compactMap { $0["type"]?.string }.filter { $0 == "group" }.count, 1)
+
+        view.ungroupObject(nil)
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(view.pickableObjects(page: 0).filter { $0.kind == "shape" }.count, 2)
+    }
+
+    /// 개체 속성 on a shape and 캡션 넣기 on a table both survive saving in each format.
+    func testShapePropertiesAndTableCaptionSurviveSave() throws {
+        let engine = try DocumentEngine(data: Data(), name: "object properties")
+        defer { engine.close() }
+        let view = PagesView(engine: engine)
+        view.beginEditingAtStart()
+        view.insertText("개체", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let item = NSMenuItem(title: "직사각형", action: #selector(PagesView.insertShape(_:)), keyEquivalent: "")
+        view.insertShape(item)
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let shape = try XCTUnwrap(view.pickableObjects(page: 0).first { $0.kind == "shape" })
+        let props = try engine.query(.objectProperties(shape.address))
+        XCTAssertEqual(props["kind"]?.string, "shape")
+        // Reading the sheet back changes nothing, colours included.
+        XCTAssertEqual(ObjectPropertiesSheet(props) { _ in }.changedProperties(), [:])
+        let red = ObjectPropertiesSheet.colorRef(.init(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        XCTAssertEqual(red, 0x0000FF)
+        _ = engine.submit(.action(.setObjectProperties(shape.address, [
+            "borderColor": .number(red), "fillType": .string("solid"), "fillBgColor": .number(0x00FF00),
+        ])))
+        view.selectObject(shape)
+        view.toggleCaption(nil)
+        _ = try engine.sync { _ in }
+
+        // With no object picked, 캡션 넣기 applies to the caret's table.
+        view.selectObject(nil)
+        view.beginEditingAtStart()
+        _ = engine.submit(.action(.insertTable(rows: 1, columns: 1)))
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let caption = NSMenuItem(title: "캡션 넣기", action: #selector(PagesView.toggleCaption(_:)), keyEquivalent: "")
+        XCTAssertTrue(view.validateMenuItem(caption))
+        view.toggleCaption(caption)
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(view.validateMenuItem(caption))
+        XCTAssertEqual(caption.title, "캡션 빼기")
+        let focus = try XCTUnwrap(engine.sync { $0.selection?.focus })
+        let table = ObjectAddress(section: focus.section, paragraph: focus.paragraph, control: try XCTUnwrap(focus.cellPath.first).control)
+        let shapeAddress = try XCTUnwrap(view.pickableObjects(page: 0).first { $0.kind == "shape" }).address
+
+        for format in [SaveFormat.hwp, .hwpx] {
+            let prepared = try engine.prepareSave(format)
+            try engine.cancelSave(prepared.token)
+            let reopened = try DocumentEngine(data: prepared.data, name: "reopened")
+            defer { reopened.close() }
+            _ = try reopened.sync { try $0.select(.collapsed(at: .documentStart)) }
+            let shapeProps = try reopened.query(.objectProperties(shapeAddress))
+            XCTAssertEqual(shapeProps["borderColor"]?.number, 0x0000FF, "\(format)")
+            XCTAssertEqual(shapeProps["fillBgColor"]?.number, 0x00FF00, "\(format)")
+            XCTAssertEqual(shapeProps["hasCaption"]?.bool, true, "\(format)")
+            XCTAssertEqual(try reopened.query(.objectProperties(table))["hasCaption"]?.bool, true, "\(format)")
+        }
     }
 }

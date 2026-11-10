@@ -188,6 +188,9 @@ final class HwpDocument: NSDocument {
         for controller in windowControllers {
             (controller as? DocumentWindowController)?.commitInput()
         }
+        if saveOperation == .autosaveElsewhereOperation {
+            return autosave(to: url, ofType: typeName, completionHandler: completionHandler)
+        }
 
         let overwritesOriginal = saveOperation == .saveOperation && url == fileURL && !overwriteConfirmed
         let hwp3AsHWP = openedAsHWP3 && Self.format(forType: typeName) == .hwp
@@ -233,6 +236,25 @@ final class HwpDocument: NSDocument {
                     if saveOperation == .saveToOperation || stillDirty { syncEditedState(isDirty: stillDirty) }
                 }
             }
+        }
+    }
+
+    /// 복구용 자동 저장 (환경 설정): a recovery copy NSDocument keeps outside the
+    /// document. No dialogs, and the engine is not told the document was saved:
+    /// it stays dirty, so closing still asks to save.
+    private func autosave(to url: URL, ofType typeName: String, completionHandler: @escaping (Error?) -> Void) {
+        guard let engine else { return completionHandler(CocoaError(.fileWriteUnknown)) }
+        let prepared: PreparedSave
+        do {
+            prepared = try engine.prepareSave(Self.format(forType: typeName))
+        } catch {
+            return completionHandler(error)
+        }
+        pendingSave = prepared
+        writeWithNSDocument(to: url, ofType: typeName, for: .autosaveElsewhereOperation) { [self] error in
+            pendingSave = nil
+            try? engine.cancelSave(prepared.token)
+            completionHandler(error)
         }
     }
 

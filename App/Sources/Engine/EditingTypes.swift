@@ -182,6 +182,9 @@ enum EditAction: Codable, Sendable {
     case insertColumnBreak
     /// 다단 of the caret's section; `spacing` in HWPUNIT.
     case setColumns(count: Int, spacing: Int)
+    /// 구역 설정 and 쪽 테두리/배경 of the caret's section (rhwp's JSON keys).
+    case setSectionDef([String: JSONValue])
+    case setPageBorder([String: JSONValue])
     /// Page setup of the caret's section: rhwp's PageDef keys in HWPUNIT
     /// (`width`, `height`, `margin*`, `landscape`).
     case setPageDef([String: JSONValue])
@@ -212,11 +215,29 @@ enum EditAction: Codable, Sendable {
     case applyStyle(Int)
     /// A picture floating at the caret; sizes in HWPUNIT and pixels.
     case insertPicture(data: Data, fileExtension: String, width: Int, height: Int, pixelWidth: Int, pixelHeight: Int)
+    /// rectangle, ellipse, line or textbox, floating where the caret is; HWPUNIT.
+    case insertShape(kind: String, width: Int, height: Int)
     case deleteObject(ObjectAddress)
-    /// `width`, `height`, `rotationAngle`, `horzFlip`, `vertFlip`, … of a picture.
-    case setPictureProperties(ObjectAddress, [String: JSONValue])
+    /// Engine property names (`width`, `rotationAngle`, `borderColor`, `fillBgColor`,
+    /// `hasCaption`, …) of a picture, shape or table.
+    case setObjectProperties(ObjectAddress, [String: JSONValue])
+    /// 개체 묶기 of pictures and shapes in one section; the result is the group's address.
+    case groupObjects(section: Int, objects: [ObjectAddress])
+    case ungroupObject(ObjectAddress)
     /// front, back, forward or backward.
     case objectOrder(ObjectAddress, String)
+    /// Properties of the caret's cell (`fillType`, `fillColor`, `verticalAlign`, `padding*`, `border*`).
+    case setCellProperties([String: JSONValue])
+    /// 계산식 in the caret's cell, e.g. `=SUM(ABOVE)`; format `%g` or `%.Nf` (`,` for thousands).
+    case setCellFormula(formula: String, format: String)
+    /// thousands, addDecimal or removeDecimal on the number in the caret's cell.
+    case formatCellNumber(String)
+    /// 감추기 on the caret's body paragraph.
+    case setPageHide(PageHide)
+    /// 새 쪽 번호 from the caret's page.
+    case newPageNumber(Int)
+    /// Removes the field around the caret.
+    case removeField
     /// 표 나누기 at the caret's row, and 표 붙이기 with the next table.
     case splitTable
     case attachNextTable
@@ -229,6 +250,8 @@ enum EditAction: Codable, Sendable {
             ["action": "replaceAll", "query": query, "replacement": replacement, "caseSensitive": caseSensitive]
         case .toggleNumbering: ["action": "toggleNumbering"]
         case .insertPageBreak: ["action": "insertPageBreak"]
+        case let .setSectionDef(props): ["action": "setSectionDef", "props": JSONValue.object(props).object]
+        case let .setPageBorder(props): ["action": "setPageBorder", "props": JSONValue.object(props).object]
         case let .setColumns(count, spacing): ["action": "setColumns", "count": count, "spacing": spacing]
         case .insertColumnBreak: ["action": "insertColumnBreak"]
         case let .setPageDef(props): ["action": "setPageDef", "props": JSONValue.object(props).object]
@@ -257,11 +280,24 @@ enum EditAction: Codable, Sendable {
         case let .insertPicture(data, fileExtension, width, height, pixelWidth, pixelHeight):
             ["action": "insertPicture", "data": data.base64EncodedString(), "extension": fileExtension,
              "width": width, "height": height, "naturalWidth": pixelWidth, "naturalHeight": pixelHeight]
+        case let .insertShape(kind, width, height): ["action": "insertShape", "kind": kind, "width": width, "height": height]
         case let .deleteObject(object): ["action": "deleteObject"].merging(object.json) { $1 }
-        case let .setPictureProperties(object, props):
-            ["action": "setPictureProperties", "props": JSONValue.object(props).object].merging(object.json) { $1 }
+        case let .setObjectProperties(object, props):
+            ["action": "setObjectProperties", "props": JSONValue.object(props).object].merging(object.json) { $1 }
+        case let .groupObjects(section, objects):
+            ["action": "groupObjects", "section": section,
+             "objects": objects.map { ["paragraph": $0.paragraph, "control": $0.control] }]
+        case let .ungroupObject(object): ["action": "ungroupObject"].merging(object.json) { $1 }
         case let .objectOrder(object, operation):
             ["action": "objectOrder", "operation": operation].merging(object.json) { $1 }
+        case let .setCellProperties(props): ["action": "setCellProperties", "props": JSONValue.object(props).object]
+        case let .setPageHide(hide):
+            ["action": "setPageHide", "header": hide.header, "footer": hide.footer, "masterPage": hide.masterPage,
+             "border": hide.border, "fill": hide.fill, "pageNumber": hide.pageNumber]
+        case let .newPageNumber(start): ["action": "newPageNumber", "start": start]
+        case let .setCellFormula(formula, format): ["action": "setCellFormula", "formula": formula, "format": format]
+        case let .formatCellNumber(operation): ["action": "formatCellNumber", "operation": operation]
+        case .removeField: ["action": "removeField"]
         case .splitTable: ["action": "splitTable"]
         case .attachNextTable: ["action": "attachNextTable"]
         }
@@ -277,11 +313,34 @@ struct ObjectAddress: Codable, Equatable, Hashable, Sendable {
     var json: [String: Any] { ["section": section, "paragraph": paragraph, "control": control] }
 }
 
+/// 감추기: what a paragraph hides from its page on.
+struct PageHide: Codable, Equatable, Sendable {
+    var header = false
+    var footer = false
+    var masterPage = false
+    var border = false
+    var fill = false
+    var pageNumber = false
+
+    init() {}
+
+    init(_ json: JSONValue) {
+        header = json["hideHeader"]?.bool ?? false
+        footer = json["hideFooter"]?.bool ?? false
+        masterPage = json["hideMasterPage"]?.bool ?? false
+        border = json["hideBorder"]?.bool ?? false
+        fill = json["hideFill"]?.bool ?? false
+        pageNumber = json["hidePageNum"]?.bool ?? false
+    }
+}
+
 /// Editing marks on screen renders: 문단 부호, 조판 부호, 투명 선. View state only.
 struct EditorMarks: Codable, Equatable, Sendable {
     var paragraphMarks = false
     var controlCodes = false
     var transparentBorders = false
+    /// Clip drawing to the page; off shows what spills over.
+    var clip = true
 }
 
 /// A header or footer of a section, by the pages it applies to.
@@ -300,13 +359,21 @@ enum EditQuery: Codable, Sendable {
     case paraProperties
     /// Page setup of the caret's section.
     case pageDef
+    case sectionDef
+    case pageBorder
     /// `{"count","spacing",…}`: columns of the caret's section.
     case columns
     /// `{"sections":[html…]}`: each section as an HTML fragment, for export.
     case documentHtml
     /// `{"controls":[{"type","x","y","w","h","secIdx","paraIdx","controlIdx",…}]}` on a page.
     case pageObjects(page: Int)
-    case pictureProperties(ObjectAddress)
+    /// A picture's, shape's or table's properties, with `kind` picture, shape or table.
+    case objectProperties(ObjectAddress)
+    case cellProperties
+    /// `{"exists","hideHeader",…}` of the caret's paragraph.
+    case pageHide
+    /// `{"inField":Bool,…}` at the caret.
+    case fieldInfo
     /// The link at the caret, `{"text","uri",…}`, or null.
     case hyperlink
     /// `{"styles":[{"id","name","type"}],"current":id}`.
@@ -320,10 +387,15 @@ enum EditQuery: Codable, Sendable {
         case .charProperties: ["kind": "charProperties"]
         case .paraProperties: ["kind": "paraProperties"]
         case .pageDef: ["kind": "pageDef"]
+        case .sectionDef: ["kind": "sectionDef"]
+        case .pageBorder: ["kind": "pageBorder"]
         case .columns: ["kind": "columns"]
         case .documentHtml: ["kind": "documentHtml"]
         case let .pageObjects(page): ["kind": "pageObjects", "page": page]
-        case let .pictureProperties(object): ["kind": "pictureProperties"].merging(object.json) { $1 }
+        case let .objectProperties(object): ["kind": "objectProperties"].merging(object.json) { $1 }
+        case .cellProperties: ["kind": "cellProperties"]
+        case .pageHide: ["kind": "pageHide"]
+        case .fieldInfo: ["kind": "fieldInfo"]
         case .hyperlink: ["kind": "hyperlink"]
         case .styles: ["kind": "styles"]
         case let .headerFooter(slot): ["kind": "headerFooter", "isHeader": slot.isHeader, "applyTo": slot.applyTo.rawValue]

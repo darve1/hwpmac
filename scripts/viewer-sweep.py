@@ -11,7 +11,13 @@ records Hancom's 문서 통계 for each file (the viewer comes to the front for 
 file) and compares saves with their original: text and objects (criterion 4)
 and page count (criterion 5), all as counted by the same viewer.
 
+files: checks a plain list of files, one viewer-check process per file. A result
+with no viewer window at all is inconclusive (the viewer did not come up, e.g.
+while the screen is locked or the machine is busy), not a rejection: such files
+are retried twice after a pause and otherwise recorded with "inconclusive": true.
+
 usage: viewer-sweep.py run <viewer-check-binary> <bundle-dir> <results.jsonl>
+       viewer-sweep.py files <viewer-check-binary> <file-list> <results.jsonl>
        viewer-sweep.py summary <bundle-dir> <results.jsonl>
        viewer-sweep.py stats <viewer-check-binary> <bundle-dir> <results.jsonl> <stats.jsonl> <documents> <seed>
        viewer-sweep.py stats-summary <bundle-dir> <stats.jsonl>
@@ -43,6 +49,26 @@ def run(tool, bundle, results):
             out = subprocess.run([tool, *pending], capture_output=True, text=True, timeout=600)
             for line in out.stdout.splitlines():
                 sink.write(line + "\n")
+            sink.flush()
+
+
+def check_files(tool, file_list, results):
+    import time
+    done = {json.loads(line)["file"] for line in results.read_text().splitlines()} if results.exists() else set()
+    with results.open("a") as sink:
+        for path in Path(file_list).read_text().splitlines():
+            if not path or Path(path).name in done:
+                continue
+            for attempt in range(3):
+                out = subprocess.run([tool, "--wait", "90", path], capture_output=True, text=True, timeout=400)
+                lines = [line for line in out.stdout.splitlines() if line.strip()]
+                row = json.loads(lines[-1]) if lines else {"file": Path(path).name, "opened": False, "windowTitles": []}
+                if row["opened"] or row.get("windowTitles") or row.get("dialog"):
+                    break
+                time.sleep(10)
+            row["attempts"] = attempt + 1
+            row["inconclusive"] = not row["opened"] and not row.get("windowTitles") and not row.get("dialog")
+            sink.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
             sink.flush()
 
 
@@ -129,6 +155,8 @@ def stats_summary(bundle, out):
 if __name__ == "__main__":
     if len(sys.argv) == 5 and sys.argv[1] == "run":
         run(sys.argv[2], Path(sys.argv[3]), Path(sys.argv[4]))
+    elif len(sys.argv) == 5 and sys.argv[1] == "files":
+        check_files(sys.argv[2], sys.argv[3], Path(sys.argv[4]))
     elif len(sys.argv) == 4 and sys.argv[1] == "summary":
         summary(Path(sys.argv[2]), Path(sys.argv[3]))
     elif len(sys.argv) == 8 and sys.argv[1] == "stats":

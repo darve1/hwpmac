@@ -8,11 +8,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let styleMenu = NSMenu(title: "스타일")
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        SettingsWindowController.applyAutosave()
         NSApp.mainMenu = makeMainMenu()
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    @objc func showSettings(_ sender: Any?) {
+        SettingsWindowController.shared.showWindow(sender)
     }
 
     @objc func showAbout(_ sender: Any?) {
@@ -41,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "\(appName) 정보", action: #selector(showAbout(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "설정…", action: #selector(showSettings(_:)), keyEquivalent: ",")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "\(appName) 가리기", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthers = appMenu.addItem(
@@ -98,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         replaceItem.keyEquivalentModifierMask = [.command, .option]
         editMenu.addItem(withTitle: "다음 찾기", action: #selector(DocumentWindowController.findNext(_:)), keyEquivalent: "g")
         editMenu.addItem(withTitle: "이전 찾기", action: #selector(DocumentWindowController.findPrevious(_:)), keyEquivalent: "G")
+        editMenu.addItem(withTitle: "누름틀 지우기", action: #selector(PagesView.removeField(_:)), keyEquivalent: "")
         let goTo = editMenu.addItem(withTitle: "쪽 찾아가기…", action: #selector(PagesView.showGoToPage(_:)), keyEquivalent: "g")
         goTo.keyEquivalentModifierMask = [.command, .option]
         addSubmenu(editMenu, titled: "편집", to: mainMenu)
@@ -155,12 +163,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         formatMenu.addItem(withTitle: "개요 수준 높이기", action: #selector(PagesView.decreaseOutlineLevel(_:)), keyEquivalent: "")
         formatMenu.addItem(withTitle: "문단 번호", action: #selector(PagesView.toggleNumbering(_:)), keyEquivalent: "")
         formatMenu.addItem(withTitle: "글머리표", action: #selector(PagesView.toggleBullets(_:)), keyEquivalent: "")
+        let bulletMenu = NSMenu(title: "글머리표 모양")
+        for bullet in ["●", "○", "■", "□", "◆", "◇", "▶", "✓", "※", "-"] {
+            bulletMenu.addItem(withTitle: bullet, action: #selector(PagesView.applyBullet(_:)), keyEquivalent: "")
+        }
+        addSubmenu(bulletMenu, titled: "글머리표 모양", to: formatMenu)
         formatMenu.addItem(withTitle: "들여쓰기 늘리기", action: #selector(PagesView.increaseIndent(_:)), keyEquivalent: "]")
         formatMenu.addItem(withTitle: "들여쓰기 줄이기", action: #selector(PagesView.decreaseIndent(_:)), keyEquivalent: "[")
         addSubmenu(formatMenu, titled: "서식", to: mainMenu)
 
         let insertMenu = NSMenu(title: "입력")
         insertMenu.addItem(withTitle: "그림…", action: #selector(PagesView.insertPicture(_:)), keyEquivalent: "")
+        let shapeMenu = NSMenu(title: "도형")
+        for (index, title) in ["사각형", "타원", "직선", "글상자"].enumerated() {
+            shapeMenu.addItem(withTitle: title, action: #selector(PagesView.insertShape(_:)), keyEquivalent: "").tag = index
+        }
+        addSubmenu(shapeMenu, titled: "도형", to: insertMenu)
         insertMenu.addItem(.separator())
         insertMenu.addItem(withTitle: "하이퍼링크…", action: #selector(PagesView.editHyperlink(_:)), keyEquivalent: "k")
         insertMenu.addItem(withTitle: "하이퍼링크 지우기", action: #selector(PagesView.removeHyperlink(_:)), keyEquivalent: "")
@@ -173,6 +191,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let objectMenu = NSMenu(title: "개체")
         objectMenu.addItem(withTitle: "개체 속성…", action: #selector(PagesView.showObjectProperties(_:)), keyEquivalent: "")
         objectMenu.addItem(withTitle: "개체 지우기", action: #selector(PagesView.deleteSelectedObject(_:)), keyEquivalent: "")
+        objectMenu.addItem(withTitle: "캡션 넣기", action: #selector(PagesView.toggleCaption(_:)), keyEquivalent: "")
+        objectMenu.addItem(.separator())
+        objectMenu.addItem(withTitle: "개체 묶기", action: #selector(PagesView.groupObjects(_:)), keyEquivalent: "")
+        objectMenu.addItem(withTitle: "개체 풀기", action: #selector(PagesView.ungroupObject(_:)), keyEquivalent: "")
         objectMenu.addItem(.separator())
         objectMenu.addItem(withTitle: "맨 앞으로", action: #selector(PagesView.bringObjectToFront(_:)), keyEquivalent: "")
         objectMenu.addItem(withTitle: "앞으로", action: #selector(PagesView.bringObjectForward(_:)), keyEquivalent: "")
@@ -199,6 +221,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         tableMenu.addItem(withTitle: "오른쪽 셀과 합치기", action: #selector(PagesView.mergeCellRight(_:)), keyEquivalent: "")
         tableMenu.addItem(withTitle: "아래 셀과 합치기", action: #selector(PagesView.mergeCellDown(_:)), keyEquivalent: "")
         tableMenu.addItem(withTitle: "셀 나누기…", action: #selector(PagesView.splitCell(_:)), keyEquivalent: "")
+        tableMenu.addItem(withTitle: "셀 속성…", action: #selector(PagesView.showCellProperties(_:)), keyEquivalent: "")
+        tableMenu.addItem(withTitle: "캡션 넣기", action: #selector(PagesView.toggleCaption(_:)), keyEquivalent: "")
+        tableMenu.addItem(.separator())
+        tableMenu.addItem(withTitle: "계산식…", action: #selector(PagesView.showCellFormula(_:)), keyEquivalent: "")
+        let easyFormulas = NSMenu(title: "쉬운 계산식")
+        for (title, formula) in [("위쪽 합계", "=SUM(ABOVE)"), ("위쪽 평균", "=AVG(ABOVE)"), ("위쪽 곱", "=PRODUCT(ABOVE)"),
+                                 ("왼쪽 합계", "=SUM(LEFT)"), ("왼쪽 평균", "=AVG(LEFT)"), ("왼쪽 곱", "=PRODUCT(LEFT)")] {
+            easyFormulas.addItem(withTitle: title, action: #selector(PagesView.applyEasyFormula(_:)), keyEquivalent: "")
+                .representedObject = formula
+        }
+        addSubmenu(easyFormulas, titled: "쉬운 계산식", to: tableMenu)
+        tableMenu.addItem(withTitle: "세 자리 쉼표", action: #selector(PagesView.addThousandsSeparators(_:)), keyEquivalent: "")
+        tableMenu.addItem(withTitle: "자릿수 늘리기", action: #selector(PagesView.addDecimalPlace(_:)), keyEquivalent: "")
+        tableMenu.addItem(withTitle: "자릿수 줄이기", action: #selector(PagesView.removeDecimalPlace(_:)), keyEquivalent: "")
         tableMenu.addItem(.separator())
         tableMenu.addItem(withTitle: "표 나누기", action: #selector(PagesView.splitTable(_:)), keyEquivalent: "")
         tableMenu.addItem(withTitle: "표 붙이기", action: #selector(PagesView.attachNextTable(_:)), keyEquivalent: "")
@@ -226,8 +262,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             numberMenu.addItem(withTitle: title, action: #selector(PagesView.insertPageNumber(_:)), keyEquivalent: "").tag = tag
         }
         addSubmenu(numberMenu, titled: "쪽 번호 넣기", to: pageMenu)
+        pageMenu.addItem(withTitle: "새 쪽 번호…", action: #selector(PagesView.showNewPageNumber(_:)), keyEquivalent: "")
+        pageMenu.addItem(withTitle: "감추기…", action: #selector(PagesView.showPageHide(_:)), keyEquivalent: "")
         pageMenu.addItem(.separator())
         pageMenu.addItem(withTitle: "편집 용지…", action: #selector(PagesView.showPageSetup(_:)), keyEquivalent: "")
+        pageMenu.addItem(withTitle: "쪽 테두리/배경…", action: #selector(PagesView.showPageBorder(_:)), keyEquivalent: "")
+        pageMenu.addItem(withTitle: "구역 설정…", action: #selector(PagesView.showSectionSettings(_:)), keyEquivalent: "")
         addSubmenu(pageMenu, titled: "쪽", to: mainMenu)
 
         let viewMenu = NSMenu(title: "보기")
@@ -238,9 +278,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(withTitle: "쪽 맞춤", action: #selector(DocumentWindowController.zoomToFitPage(_:)), keyEquivalent: "")
         viewMenu.addItem(withTitle: "배율…", action: #selector(DocumentWindowController.showZoomPrompt(_:)), keyEquivalent: "")
         viewMenu.addItem(.separator())
+        viewMenu.addItem(withTitle: "도구 상자 보기", action: #selector(NSWindow.toggleToolbarShown(_:)), keyEquivalent: "")
+        viewMenu.addItem(withTitle: "도구 상자 사용자화…", action: #selector(NSWindow.runToolbarCustomizationPalette(_:)), keyEquivalent: "")
+        viewMenu.addItem(.separator())
         viewMenu.addItem(withTitle: "문단 부호", action: #selector(PagesView.toggleParagraphMarks(_:)), keyEquivalent: "")
         viewMenu.addItem(withTitle: "조판 부호", action: #selector(PagesView.toggleControlCodes(_:)), keyEquivalent: "")
         viewMenu.addItem(withTitle: "투명 선", action: #selector(PagesView.toggleTransparentBorders(_:)), keyEquivalent: "")
+        viewMenu.addItem(withTitle: "쪽 밖 내용 자르기", action: #selector(PagesView.toggleClip(_:)), keyEquivalent: "")
+        viewMenu.addItem(withTitle: "격자 보기", action: #selector(PagesView.toggleGrid(_:)), keyEquivalent: "")
+        viewMenu.addItem(withTitle: "격자 설정…", action: #selector(PagesView.showGridSettings(_:)), keyEquivalent: "")
         addSubmenu(viewMenu, titled: "보기", to: mainMenu)
 
         let windowMenu = NSMenu(title: "윈도우")

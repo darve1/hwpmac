@@ -120,3 +120,73 @@ final class HtmlExportTests: XCTestCase {
         XCTAssertTrue(html.contains("urn:schemas-microsoft-com:office:word"))
     }
 }
+
+@MainActor
+final class ToolbarTests: XCTestCase {
+    /// Every toolbar item's action is a command some responder implements.
+    func testToolbarItemsReachTheirCommands() throws {
+        let engine = try DocumentEngine(data: Data(), name: "toolbar")
+        defer { engine.close() }
+        let controller = DocumentWindowController(engine: engine)
+        let toolbar = try XCTUnwrap(controller.window?.toolbar)
+        XCTAssertEqual(toolbar.items.count, DocumentToolbar.basic.count + DocumentToolbar.format.count + 1)
+        for spec in DocumentToolbar.basic + DocumentToolbar.format {
+            let handled = [controller.pagesView as NSObject, controller, HwpDocument() as NSObject]
+                .contains { $0.responds(to: spec.action) }
+            XCTAssertTrue(handled, spec.label)
+            XCTAssertNotNil(NSImage(systemSymbolName: spec.symbol, accessibilityDescription: nil), spec.symbol)
+        }
+    }
+}
+
+@MainActor
+final class SectionTests: XCTestCase {
+    func testSectionStartNumberAndPageBorder() throws {
+        let engine = try DocumentEngine(data: Data(), name: "section")
+        defer { engine.close() }
+        let view = PagesView(engine: engine)
+        view.beginEditingAtStart()
+        _ = engine.submit(.action(.setSectionDef(["pageNum": .number(3)])))
+        let side: JSONValue = .object(["type": .number(1), "width": .number(1), "color": .string("#000000")])
+        _ = engine.submit(.action(.setPageBorder(["borderTop": side, "fillType": .string("solid"), "fillColor": .string("#ffffe0")])))
+        _ = try engine.sync { _ in }
+        XCTAssertEqual(try engine.query(.sectionDef)["pageNum"]?.number, 3)
+        let border = try engine.query(.pageBorder)
+        XCTAssertEqual(border["borderTop"]?["type"]?.number, 1)
+        XCTAssertEqual(border["fillColor"]?.string?.lowercased(), "#ffffe0")
+    }
+}
+
+@MainActor
+final class GridTests: XCTestCase {
+    func testGridPositionsCoverThePageFromTheTextCorner() {
+        XCTAssertEqual(GridSettings.positions(origin: 10, step: 4, lower: 0, upper: 20), [2, 6, 10, 14, 18])
+        XCTAssertEqual(GridSettings.positions(origin: 0, step: 5, lower: 0, upper: 10), [0, 5, 10])
+        XCTAssertEqual(GridSettings.positions(origin: 0, step: 0, lower: 0, upper: 10), [])
+        XCTAssertEqual(GridSettings.clamp(0), 1)
+        XCTAssertEqual(GridSettings.clamp(500), 100)
+    }
+
+    func testGridSettingsPersistAndToggleFromTheMenu() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "GridTests-\(UUID().uuidString)"))
+        var settings = GridSettings(visible: true, pattern: .both, horizontalMm: 5, verticalMm: 10)
+        settings.save(defaults)
+        XCTAssertEqual(GridSettings.load(defaults), settings)
+        settings.pattern = .dots
+        XCTAssertNotEqual(GridSettings.load(defaults), settings)
+
+        let engine = try DocumentEngine(data: Data(), name: "grid")
+        defer { engine.close() }
+        let view = PagesView(engine: engine)
+        let original = view.grid
+        defer { view.grid = original }
+        view.grid.visible = false
+        let revision = try engine.sync { $0.revision }
+        let item = NSMenuItem(title: "격자 보기", action: #selector(PagesView.toggleGrid(_:)), keyEquivalent: "")
+        view.toggleGrid(item)
+        XCTAssertTrue(view.validateMenuItem(item))
+        XCTAssertEqual(item.state, .on)
+        // The grid is a view setting: the document does not change.
+        XCTAssertEqual(try engine.sync { $0.revision }, revision)
+    }
+}
