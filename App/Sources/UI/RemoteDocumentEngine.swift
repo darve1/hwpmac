@@ -91,6 +91,10 @@ final class RemoteDocumentEngine: NSObject, DocumentEngineClient, EngineClientPr
         try call(.documentText)
     }
 
+    func query(_ query: EditQuery) throws -> JSONValue {
+        try call(.query(query))
+    }
+
     func exportPDF() throws -> Data {
         try call(.exportPDF)
     }

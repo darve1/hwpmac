@@ -4,7 +4,8 @@ import AppKit
 
 final class DocumentWindowController: NSWindowController, NSMenuItemValidation {
     private let scrollView = NSScrollView()
-    private let pagesView: PagesView
+    private let toolbarDelegate = DocumentToolbar()
+    let pagesView: PagesView
 
     init(engine: any DocumentEngineClient) {
         pagesView = PagesView(engine: engine)
@@ -24,6 +25,8 @@ final class DocumentWindowController: NSWindowController, NSMenuItemValidation {
         scrollView.backgroundColor = .underPageBackgroundColor
         scrollView.documentView = pagesView
         window.contentView = scrollView
+        window.toolbar = toolbarDelegate.makeToolbar()
+        window.toolbarStyle = .unifiedCompact
         window.center()
         super.init(window: window)
 
@@ -47,6 +50,22 @@ final class DocumentWindowController: NSWindowController, NSMenuItemValidation {
         pagesView.commitInput()
     }
 
+    @objc func showFind(_ sender: Any?) {
+        FindPanelController.shared.showPanel(focusReplace: false)
+    }
+
+    @objc func showReplace(_ sender: Any?) {
+        FindPanelController.shared.showPanel(focusReplace: true)
+    }
+
+    @objc func findNext(_ sender: Any?) {
+        FindPanelController.shared.findNext(sender)
+    }
+
+    @objc func findPrevious(_ sender: Any?) {
+        FindPanelController.shared.findPrevious(sender)
+    }
+
     @objc func restartEngine(_ sender: Any?) {
         (document as? HwpDocument)?.restartEngine()
     }
@@ -68,6 +87,45 @@ final class DocumentWindowController: NSWindowController, NSMenuItemValidation {
 
     @objc func zoomOut(_ sender: Any?) {
         scrollView.animator().magnification = max(scrollView.magnification / 1.25, scrollView.minMagnification)
+    }
+
+    /// 폭 맞춤: the widest page fills the window's width.
+    @objc func zoomToFitWidth(_ sender: Any?) {
+        let span = pagesView.largestPageSpan
+        guard span.width > 0 else { return }
+        setMagnification(scrollView.contentSize.width / span.width)
+    }
+
+    /// 쪽 맞춤: a whole page fits in the window.
+    @objc func zoomToFitPage(_ sender: Any?) {
+        let span = pagesView.largestPageSpan
+        guard span.width > 0, span.height > 0 else { return }
+        let size = scrollView.contentSize
+        setMagnification(min(size.width / span.width, size.height / span.height))
+    }
+
+    /// 배율…: a zoom percentage typed in.
+    @objc func showZoomPrompt(_ sender: Any?) {
+        guard let window else { return }
+        let field = NSTextField(string: String(Int((scrollView.magnification * 100).rounded())))
+        field.frame = NSRect(x: 0, y: 0, width: 80, height: 24)
+        let alert = NSAlert()
+        alert.messageText = "배율 (%)"
+        alert.informativeText = "\(Int(scrollView.minMagnification * 100))~\(Int(scrollView.maxMagnification * 100))%"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "확인")
+        alert.addButton(withTitle: "취소")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, field.doubleValue > 0 else { return }
+            self?.setMagnification(field.doubleValue / 100)
+        }
+    }
+
+    var magnification: CGFloat { scrollView.magnification }
+
+    private func setMagnification(_ value: CGFloat) {
+        scrollView.magnification = min(max(value, scrollView.minMagnification), scrollView.maxMagnification)
     }
 }
 

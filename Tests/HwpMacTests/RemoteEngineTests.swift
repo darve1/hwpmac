@@ -87,3 +87,27 @@ final class RemoteEngineTests: XCTestCase {
         XCTAssertThrowsError(try RemoteDocumentEngine(data: Data("이것은 한글 문서가 아닙니다".utf8)))
     }
 }
+
+@MainActor
+final class AutosaveTests: XCTestCase {
+    /// A recovery autosave writes a readable copy without marking the document saved.
+    func testAutosaveKeepsDocumentDirty() throws {
+        let document = try HwpDocument(type: "com.hancom.hwpx")
+        defer { document.close() }
+        document.makeWindowControllers()
+        let controller = try XCTUnwrap(document.windowControllers.first as? DocumentWindowController)
+        controller.pagesView.insertText("복구", replacementRange: NSRange(location: NSNotFound, length: 0))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("autosave-\(UUID().uuidString).hwpx")
+        let done = expectation(description: "autosave")
+        document.save(to: url, ofType: "com.hancom.hwpx", for: .autosaveElsewhereOperation) { error in
+            XCTAssertNil(error)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 30)
+        let reopened = try DocumentEngine(data: Data(contentsOf: url), name: "recovered")
+        defer { reopened.close() }
+        XCTAssertEqual(try reopened.documentText(), "복구")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+        XCTAssertTrue(document.isDocumentEdited)
+    }
+}

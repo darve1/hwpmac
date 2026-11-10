@@ -134,6 +134,15 @@ final class RhwpSession {
         try edit(["op": "pasteText", "text": text, "expectedRevision": expectedRevision])
     }
 
+    func applyAction(_ action: EditAction, expectedRevision: UInt64) throws -> (EditOutcome, JSONValue) {
+        let response = try request(["op": "applyAction", "action": action.jsonObject, "expectedRevision": expectedRevision])
+        return (try decode(EditOutcome.self, from: response["outcome"]), JSONValue(response["result"]))
+    }
+
+    func query(_ query: EditQuery) throws -> JSONValue {
+        JSONValue(try request(["op": "query", "query": query.jsonObject])["result"])
+    }
+
     func imeContext(expectedRevision: UInt64) throws -> ImeContext {
         try decode(ImeContext.self, from: request(["op": "imeContext", "expectedRevision": expectedRevision])["context"])
     }
@@ -187,6 +196,14 @@ final class RhwpSession {
     }
 
     // MARK: Plumbing
+
+    /// Editing marks for later renders; neither the document nor its revision changes.
+    func setEditorMarks(_ marks: EditorMarks) throws {
+        _ = try request(["op": "setEditorMarks", "marks": [
+            "paragraphMarks": marks.paragraphMarks, "controlCodes": marks.controlCodes,
+            "transparentBorders": marks.transparentBorders, "clip": marks.clip, "formMode": marks.formMode,
+        ]])
+    }
 
     private func request(_ body: [String: Any]) throws -> [String: Any] {
         checkOwnerThread()

@@ -110,6 +110,34 @@ final class DocumentEditor {
         return apply(try session.redo(expectedRevision: revision))
     }
 
+    /// Applies a formatting or document-wide action as one undo entry.
+    @discardableResult
+    func apply(_ action: EditAction) throws -> JSONValue {
+        try commitMarkedText()
+        let (outcome, result) = try session.applyAction(action, expectedRevision: revision)
+        apply(outcome)
+        return result
+    }
+
+    func query(_ query: EditQuery) throws -> JSONValue {
+        try session.query(query)
+    }
+
+    /// Selects the next (or previous) match of `text` from the caret. Returns
+    /// false when there is none.
+    @discardableResult
+    func find(_ text: String, forward: Bool, caseSensitive: Bool) throws -> Bool {
+        try commitMarkedText()
+        let hit = try session.query(.find(query: text, forward: forward, caseSensitive: caseSensitive))
+        guard hit["found"]?.bool == true, let position = hit["position"], let length = hit["length"]?.number
+        else { return false }
+        // The match may be inside a table cell; `position` carries its cell path.
+        let start = try JSONDecoder().decode(TextPosition.self, from: JSONEncoder().encode(position))
+        try select(forward ? TextSelection(anchor: start, focus: start.offset(by: Int(length)))
+                           : TextSelection(anchor: start.offset(by: Int(length)), focus: start))
+        return true
+    }
+
     /// Paragraph text around the focus; does not change the selection.
     func surroundingText() throws -> ImeContext {
         try session.imeContext(expectedRevision: revision)

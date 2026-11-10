@@ -27,6 +27,12 @@ final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
         case undo
         case redo
         case paste(String)
+        /// Formatting or replace-all; the result lands in `Snapshot.lastResult`.
+        case action(EditAction)
+        /// Selects the next/previous match; `Snapshot.lastResult` says whether one was found.
+        case find(query: String, forward: Bool, caseSensitive: Bool)
+        /// Editing marks for later renders.
+        case marks(EditorMarks)
 
         var traceName: String {
             switch self {
@@ -41,6 +47,9 @@ final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
             case .undo: "undo"
             case .redo: "redo"
             case .paste: "paste"
+            case .action: "action"
+            case .find: "find"
+            case .marks: "marks"
             }
         }
     }
@@ -65,6 +74,13 @@ final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
         var appliedSequence: UInt64 = 0
         /// Whether the last batch that changed the document was slow.
         var engineIsSlow = false
+        /// Result of the last action or find in the batch (`{"found":Bool}` for find).
+        var lastResult: JSONValue?
+        /// Formatting at the selection start, for toolbar and menu state.
+        var charProperties: JSONValue?
+        var paraProperties: JSONValue?
+        /// The marks renders now draw; pages rendered with others are stale.
+        var marks = EditorMarks()
     }
 
     let initialPageSizes: [CGSize]
@@ -82,6 +98,8 @@ final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
     private var editor: DocumentEditor!
     private var pageCount = 0
     private var dragAnchor: TextPosition?
+    private var lastResult: JSONValue?
+    private var marks = EditorMarks()
 
     /// Opens `data` (empty data creates a blank document) on a new engine thread.
     init(data: Data, name: String = "rhwp engine") throws {
@@ -197,6 +215,10 @@ final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
         return try Data(contentsOf: output)
     }
 
+    func query(_ query: EditQuery) throws -> JSONValue {
+        try sync { try $0.query(query) }
+    }
+
     func documentText() throws -> String {
         try sync { editor in
             let selection = editor.selection
@@ -225,8 +247,10 @@ final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
             let stepStarted = Date()
             do {
                 try apply(operation)
-            } catch RhwpNativeHostError.failed(code: "unsupported", _) {
-                failure = "이 위치는 아직 편집할 수 없습니다 (표, 개체 등이 있는 문단)"
+            } catch let RhwpNativeHostError.failed(code: "unsupported", message) {
+                failure = Self.unsupportedMessage(message)
+            } catch let RhwpNativeHostError.failed(_, message) {
+                failure = "편집하지 못했습니다: \(Self.argumentMessage(message))"
             } catch {
                 failure = "편집하지 못했습니다: \(error)"
             }
@@ -235,6 +259,9 @@ final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
         let snapshotStarted = Date()
         var snapshot = makeSnapshot(contentsChanged: editor.revision != revision, failure: failure)
         snapshot.appliedSequence = appliedSequence
+        snapshot.lastResult = lastResult
+        snapshot.marks = marks
+        lastResult = nil
         lock.lock()
         if snapshot.contentsChanged {
             lastEditBatchSeconds = snapshotStarted.timeIntervalSince(started)
@@ -286,7 +313,42 @@ final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
             try editor.redo()
         case let .paste(text):
             try editor.paste(text)
+        case let .action(action):
+            lastResult = try editor.apply(action)
+        case let .marks(newMarks):
+            try editor.session.setEditorMarks(newMarks)
+            marks = newMarks
+        case let .find(query, forward, caseSensitive):
+            lastResult = .object(["found": .bool(try editor.find(query, forward: forward, caseSensitive: caseSensitive))])
         }
+    }
+
+    /// The engine's reasons for refusing an edit, in Korean.
+    static func unsupportedMessage(_ message: String) -> String {
+        let reasons: [(String, String)] = [
+            ("holds an object", "그림·표 같은 개체가 든 범위는 글자 편집으로 지울 수 없습니다."),
+            ("table-cell boundary", "선택 범위가 표 셀 경계를 넘을 수 없습니다."),
+            ("in form mode", "양식 모드에서는 편집할 수 있는 누름틀 안의 글자만 고칠 수 있습니다."),
+            ("top-level tables only", "표 안에 든 표는 줄·칸을 편집할 수 없습니다."),
+            ("breaks go into body text", "쪽·단 나누기는 본문에서만 됩니다."),
+            ("HTML paste into table cells", "표 셀에는 서식 없는 글자만 붙일 수 있습니다."),
+            ("stacking order applies to shapes", "순서는 도형에만 바꿀 수 있습니다."),
+            ("pictures are inserted in body text", "그림은 본문에만 넣을 수 있습니다."),
+        ]
+        return reasons.first { message.contains($0.0) }?.1
+            ?? "이 위치는 아직 편집할 수 없습니다 (글상자, 머리말 안 등)"
+    }
+
+    /// Messages of refused arguments; the core's own are often Korean already.
+    static func argumentMessage(_ message: String) -> String {
+        let reasons: [(String, String)] = [
+            ("non-empty selection", "글자를 먼저 고르세요."),
+            ("a link needs selected text", "링크를 붙일 글자를 한 문단 안에서 고르세요."),
+            ("no link at the caret", "캐럿 자리에 링크가 없습니다."),
+            ("not in a table", "캐럿이 표 안에 있지 않습니다."),
+            ("no cell at that grid position", "그 방향에 셀이 없습니다."),
+        ]
+        return reasons.first { message.contains($0.0) }?.1 ?? message
     }
 
     private func makeSnapshot(contentsChanged: Bool, failure: String?) -> Snapshot {
@@ -313,6 +375,10 @@ final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
         }
         if let marked = editor.markedSelection {
             snapshot.markedRects = (try? session.selectionRects(marked)) ?? []
+        }
+        if editor.isEditing {
+            snapshot.charProperties = try? editor.query(.charProperties)
+            snapshot.paraProperties = try? editor.query(.paraProperties)
         }
         return snapshot
     }

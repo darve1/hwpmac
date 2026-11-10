@@ -135,6 +135,35 @@ final class HwpDocument: NSDocument {
         }
     }
 
+    @objc func exportHTML(_ sender: Any?) { export(.html) }
+    @objc func exportWord(_ sender: Any?) { export(.word) }
+
+    private func export(_ format: HtmlExport.Format) {
+        guard let window = windowForSheet, let engine else { return }
+        for controller in windowControllers {
+            (controller as? DocumentWindowController)?.commitInput()
+        }
+        let title = (displayName as NSString).deletingPathExtension
+        let html: String
+        do {
+            html = HtmlExport.document(try engine.query(.documentHtml), title: title, format: format)
+        } catch {
+            presentError(error)
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [format.contentType]
+        panel.nameFieldStringValue = title + "." + format.fileExtension
+        panel.beginSheetModal(for: window) { [self] response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try Data(html.utf8).write(to: url)
+            } catch {
+                presentError(error)
+            }
+        }
+    }
+
     private func currentPDF() throws -> Data {
         guard let engine else { throw CocoaError(.fileReadUnknown) }
         for controller in windowControllers {
@@ -158,6 +187,9 @@ final class HwpDocument: NSDocument {
         }
         for controller in windowControllers {
             (controller as? DocumentWindowController)?.commitInput()
+        }
+        if saveOperation == .autosaveElsewhereOperation {
+            return autosave(to: url, ofType: typeName, completionHandler: completionHandler)
         }
 
         let overwritesOriginal = saveOperation == .saveOperation && url == fileURL && !overwriteConfirmed
@@ -204,6 +236,25 @@ final class HwpDocument: NSDocument {
                     if saveOperation == .saveToOperation || stillDirty { syncEditedState(isDirty: stillDirty) }
                 }
             }
+        }
+    }
+
+    /// 복구용 자동 저장 (환경 설정): a recovery copy NSDocument keeps outside the
+    /// document. No dialogs, and the engine is not told the document was saved:
+    /// it stays dirty, so closing still asks to save.
+    private func autosave(to url: URL, ofType typeName: String, completionHandler: @escaping (Error?) -> Void) {
+        guard let engine else { return completionHandler(CocoaError(.fileWriteUnknown)) }
+        let prepared: PreparedSave
+        do {
+            prepared = try engine.prepareSave(Self.format(forType: typeName))
+        } catch {
+            return completionHandler(error)
+        }
+        pendingSave = prepared
+        writeWithNSDocument(to: url, ofType: typeName, for: .autosaveElsewhereOperation) { [self] error in
+            pendingSave = nil
+            try? engine.cancelSave(prepared.token)
+            completionHandler(error)
         }
     }
 
