@@ -12,4 +12,6 @@ HwpMac is licensed under the PolyForm Noncommercial License 1.0.0 (LICENSE.md).
 ## Third-party
 
 - rhwp (https://github.com/edwardkim/rhwp), MIT License, Copyright (c) 2025-2026 Edward Kim.
-  Pinned at `third_party/rhwp` (tag v0.9.0, commit c9095c5).
+  Pinned at `third_party/rhwp`: branch `hwpmac/native-actions` of the fork
+  https://github.com/darve1/rhwp, which is tag v0.9.0 (commit c9095c5) plus
+  native editing actions; the changes are under rhwp's MIT License.

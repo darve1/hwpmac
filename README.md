@@ -1,7 +1,8 @@
 # HwpMac
 
 macOS에서 한글 문서(.hwp, .hwpx)를 열고, 본문을 고치고, 저장하는 네이티브 앱입니다.
-문서 엔진은 [rhwp](https://github.com/edwardkim/rhwp)(Rust, MIT)를 고정 버전으로 쓰고,
+문서 엔진은 [rhwp](https://github.com/edwardkim/rhwp)(Rust, MIT) v0.9.0에 네이티브 편집 동작을 더한
+[포크 브랜치](https://github.com/darve1/rhwp/tree/hwpmac/native-actions)를 고정해 쓰고,
 앱은 AppKit으로 만들었습니다.
 
 본 제품은 한글과컴퓨터의 한글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
@@ -32,7 +33,7 @@ macOS에서 한글 문서(.hwp, .hwpx)를 열고, 본문을 고치고, 저장하
 필요한 것: Apple silicon Mac, Xcode 27 이상, Homebrew의 `rustup`과 `xcodegen`.
 
 ```sh
-git submodule update --init          # third_party/rhwp (v0.9.0)
+git submodule update --init          # third_party/rhwp (darve1/rhwp, hwpmac/native-actions)
 ./scripts/build-native.sh            # rhwp FFI(Skia 렌더링) → build/native/lib
 xcodegen generate                    # project.yml → HwpMac.xcodeproj
 xcodebuild -project HwpMac.xcodeproj -scheme HwpMac -configuration Release \
@@ -54,7 +55,7 @@ open build/DerivedData/Build/Products/Release/HwpMac.app
 
 | 위치 | 역할 |
 | --- | --- |
-| `third_party/rhwp` | 문서 엔진(파싱, 조판, 렌더링, 편집, 저장). v0.9.0에 네이티브 편집 확장(서식·찾기·표 셀 편집·표 구조 동작)을 더한 브랜치 `hwpmac/native-actions` |
+| `third_party/rhwp` | 문서 엔진(파싱, 조판, 렌더링, 편집, 저장). v0.9.0에 네이티브 편집 동작(서식, 찾기, 표 셀 편집, 표·쪽·머리말·개체 동작)을 더한 [darve1/rhwp](https://github.com/darve1/rhwp/tree/hwpmac/native-actions)의 `hwpmac/native-actions` |
 | `App/Sources/Engine` | rhwp 세션 래퍼(`RhwpSession`), 편집 상태(`DocumentEditor`), 전용 스레드 엔진(`DocumentEngine`), XPC 프로토콜(`EngineXPC`), Quick Look용 렌더러 |
 | `App/Sources/UI` | NSDocument, XPC 클라이언트(`RemoteDocumentEngine`), 쪽 보기·편집 뷰(`PagesView`, NSTextInputClient), 메뉴, 도움말 |
 | `Services/EngineService` | 문서 엔진 XPC 서비스. 샌드박스 권한 외에는 아무 권한도 없음 |
