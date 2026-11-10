@@ -24,14 +24,12 @@ PARTIAL = {
     "view:grid-settings",
 }
 NOT_YET = {
-    "edit:compare-documents", "edit:document-history", "field:edit",
-    "format:style-dialog", "format:para-num-shape", "format:bullet-shape",
+    "edit:compare-documents", "edit:document-history",
     "insert:chart-data-edit",
-    "insert:note-close", "insert:field",
+    "insert:note-close",
     "page:headerfooter-close", "page:headerfooter-prev", "page:headerfooter-next",
     "table:transpose-copy", "table:transpose-paste", "table:cell-height-equal",
     "table:cell-width-equal",
-    "view:form-mode",
 }
 
 

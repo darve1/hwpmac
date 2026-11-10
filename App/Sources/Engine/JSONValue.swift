@@ -65,6 +65,16 @@ enum JSONValue: Codable, Equatable, Sendable {
         }
     }
 
+    subscript(index: Int) -> JSONValue? {
+        if case let .array(items) = self, items.indices.contains(index) { return items[index] }
+        return nil
+    }
+
+    var arrayCount: Int {
+        if case let .array(items) = self { return items.count }
+        return 0
+    }
+
     subscript(key: String) -> JSONValue? {
         if case let .object(value) = self { value[key] } else { nil }
     }

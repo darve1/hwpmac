@@ -213,6 +213,14 @@ enum EditAction: Codable, Sendable {
     case addBookmark(String)
     /// Document style `id` on the selected paragraphs.
     case applyStyle(Int)
+    /// 스타일 고치기: `props` (name, englishName, nextStyleId) and 글자/문단 모양 changes.
+    case updateStyle(id: Int, props: [String: JSONValue], charProps: [String: JSONValue], paraProps: [String: JSONValue])
+    /// 새 스타일 starting from the 모양 of style `basedOn`.
+    case createStyle(name: String, basedOn: Int)
+    case deleteStyle(Int)
+    /// 문단 번호 모양: a new numbering with these level formats and number codes (none when empty);
+    /// `restart` 2 starts the list again at `start`.
+    case applyNumberingShape(levelFormats: [String], numberFormats: [Int], restart: Int, start: Int)
     /// A picture floating at the caret; sizes in HWPUNIT and pixels.
     case insertPicture(data: Data, fileExtension: String, width: Int, height: Int, pixelWidth: Int, pixelHeight: Int)
     /// rectangle, ellipse, line or textbox, floating where the caret is; HWPUNIT.
@@ -240,6 +248,10 @@ enum EditAction: Codable, Sendable {
     case newPageNumber(Int)
     /// Removes the field around the caret.
     case removeField
+    /// 누름틀 at the caret: shows `guide` until filled; `editable` in form mode.
+    case insertField(guide: String, memo: String, name: String, editable: Bool)
+    /// The guide, memo, name and form editability of the 누름틀 around the caret.
+    case setFieldProperties(guide: String, memo: String, name: String, editable: Bool)
     /// 각주 (`footnote`) or 미주 (`endnote`) at the caret; each line of `text` is a note paragraph.
     case insertNote(kind: String, text: String)
     /// The text of the note whose marker is at the caret, and deleting that note.
@@ -286,6 +298,14 @@ enum EditAction: Codable, Sendable {
         case .removeHyperlink: ["action": "removeHyperlink"]
         case let .addBookmark(name): ["action": "addBookmark", "name": name]
         case let .applyStyle(id): ["action": "applyStyle", "id": id]
+        case let .updateStyle(id, props, charProps, paraProps):
+            ["action": "updateStyle", "id": id, "props": JSONValue.object(props).object,
+             "charProps": JSONValue.object(charProps).object, "paraProps": JSONValue.object(paraProps).object]
+        case let .createStyle(name, basedOn): ["action": "createStyle", "name": name, "basedOn": basedOn]
+        case let .deleteStyle(id): ["action": "deleteStyle", "id": id]
+        case let .applyNumberingShape(levelFormats, numberFormats, restart, start):
+            ["action": "applyNumberingShape", "levelFormats": levelFormats, "numberFormats": numberFormats,
+             "restart": restart, "start": start]
         case let .insertPicture(data, fileExtension, width, height, pixelWidth, pixelHeight):
             ["action": "insertPicture", "data": data.base64EncodedString(), "extension": fileExtension,
              "width": width, "height": height, "naturalWidth": pixelWidth, "naturalHeight": pixelHeight]
@@ -308,6 +328,10 @@ enum EditAction: Codable, Sendable {
         case let .setCellFormula(formula, format): ["action": "setCellFormula", "formula": formula, "format": format]
         case let .formatCellNumber(operation): ["action": "formatCellNumber", "operation": operation]
         case .removeField: ["action": "removeField"]
+        case let .insertField(guide, memo, name, editable):
+            ["action": "insertField", "guide": guide, "memo": memo, "name": name, "editable": editable]
+        case let .setFieldProperties(guide, memo, name, editable):
+            ["action": "setFieldProperties", "guide": guide, "memo": memo, "name": name, "editable": editable]
         case let .insertNote(kind, text): ["action": "insertNote", "kind": kind, "text": text]
         case let .setNoteText(text): ["action": "setNoteText", "text": text]
         case .deleteNote: ["action": "deleteNote"]
@@ -355,6 +379,8 @@ struct EditorMarks: Codable, Equatable, Sendable {
     var transparentBorders = false
     /// Clip drawing to the page; off shows what spills over.
     var clip = true
+    /// 양식 모드: only the text of 누름틀 editable in forms can change.
+    var formMode = false
 }
 
 /// A header or footer of a section, by the pages it applies to.
@@ -381,6 +407,10 @@ enum EditQuery: Codable, Sendable {
     case documentHtml
     /// `{"found":false}` or the note whose marker is at the caret: `kind`, `number`, `text`.
     case noteAtCaret
+    /// `{"found":false}` or the 누름틀 around the caret: `fieldId`, `guide`, `memo`, `name`, `editable`.
+    case clickHereAtCaret
+    /// `{"fields":[{"position","length","name","editable"}]}` of the document's 누름틀, in order.
+    case formFields
     /// `numberFormat`, `prefixChar`, `suffixChar`, `startNumber`, `numbering`, `placement`, …
     case noteShape(String)
     /// `{"controls":[{"type","x","y","w","h","secIdx","paraIdx","controlIdx",…}]}` on a page.
@@ -396,6 +426,8 @@ enum EditQuery: Codable, Sendable {
     case hyperlink
     /// `{"styles":[{"id","name","type"}],"current":id}`.
     case styles
+    /// `{"charProps","paraProps"}` of a style.
+    case styleDetail(Int)
     /// `{"exists":…,"text":…}` for a header or footer of the caret's section.
     case headerFooter(HeaderFooterSlot)
     case find(query: String, forward: Bool, caseSensitive: Bool)
@@ -410,6 +442,8 @@ enum EditQuery: Codable, Sendable {
         case .columns: ["kind": "columns"]
         case .documentHtml: ["kind": "documentHtml"]
         case .noteAtCaret: ["kind": "noteAtCaret"]
+        case .clickHereAtCaret: ["kind": "clickHereAtCaret"]
+        case .formFields: ["kind": "formFields"]
         case let .noteShape(note): ["kind": "noteShape", "note": note]
         case let .pageObjects(page): ["kind": "pageObjects", "page": page]
         case let .objectProperties(object): ["kind": "objectProperties"].merging(object.json) { $1 }
@@ -418,6 +452,7 @@ enum EditQuery: Codable, Sendable {
         case .fieldInfo: ["kind": "fieldInfo"]
         case .hyperlink: ["kind": "hyperlink"]
         case .styles: ["kind": "styles"]
+        case let .styleDetail(id): ["kind": "styleDetail", "id": id]
         case let .headerFooter(slot): ["kind": "headerFooter", "isHeader": slot.isHeader, "applyTo": slot.applyTo.rawValue]
         case let .find(query, forward, caseSensitive):
             ["kind": "find", "query": query, "forward": forward, "caseSensitive": caseSensitive]

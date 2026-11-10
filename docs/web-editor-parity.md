@@ -38,7 +38,7 @@
 | edit:compare-documents, edit:document-history | 아직 | |
 | edit:goto | 됨 | 쪽 찾아가기(⌥⌘G) |
 | field:remove | 됨 | 편집 → 누름틀 지우기(캐럿이 본문 필드 안에 있을 때) |
-| field:edit | 아직 | 누름틀 속성 고치기 |
+| field:edit | 됨 | 편집 → 누름틀 고치기…: 캐럿이 든 누름틀의 안내문·메모·필드 이름·양식 모드 편집 가능 |
 
 ## 파일
 
@@ -69,9 +69,10 @@
 | format:toggle-numbering, format:toggle-bullet | 됨 | 문서의 첫 문단 번호 정의, 글머리표 ● |
 | format:apply-style | 됨 | 서식 → 스타일: 문서의 문단 스타일(본문과 바깥 표 셀) |
 | format:level-increase, format:level-decrease | 됨 | 개요 수준 낮추기·높이기(개요 1~7 스타일 사이) |
-| format:style-dialog | 아직 | 스타일 정의 고치기 |
+| format:style-dialog | 됨 | 서식 → 스타일 → 스타일 편집…: 이름·영문 이름·다음 문단, 글자 모양…·문단 모양…(그 스타일을 쓰는 문단에 바로 적용), 새 스타일, 지우기(바탕글 제외) |
 | format:apply-bullet | 됨 | 서식 → 글머리표 모양: ● ○ ■ □ ◆ ◇ ▶ ✓ ※ - |
-| format:para-num-shape, bullet-shape | 아직 | 번호·글머리표 모양 대화상자 |
+| format:para-num-shape | 됨 | 서식 → 문단 번호 모양…: 웹 편집기의 번호 모양 6가지와 번호 없음, 앞 번호에 이어서/새 번호로 시작(시작 번호) |
+| format:bullet-shape | 됨 | 웹 편집기에서는 글머리표 고르기 팝업을 엽니다. 이 앱은 서식 → 글머리표 모양 메뉴(● ○ ■ □ ◆ ◇ ▶ ✓ ※ -) |
 | format:object-properties | 부분 | 개체 → 개체 속성…(그림·도형): 너비·높이, 회전, 캡션, 도형의 선 색·굵기와 채우기 색. 위치·배치·자르기·효과와 표 개체 속성은 아직(표는 셀 속성…) |
 
 ## 표
@@ -134,7 +135,7 @@
 | insert:footnote, insert:endnote | 됨 | 입력 → 각주…/미주…: 캐럿 자리에 번호를 넣고 대화상자에서 글자(여러 줄은 문단)를 씁니다. 번호 바로 뒤에서 각주/미주 고치기…·지우기. 번호는 문단에서 한 자리를 차지합니다. |
 | insert:note-close | 아직 | 쪽 위 각주 편집 모드용(이 앱은 대화상자로 고칩니다) |
 | insert:endnote-shape | 됨 | 입력 → 미주 모양…(각주 모양…도): 번호 모양, 앞·뒤 장식 문자, 시작 번호, 번호 매기기, 위치. 캐럿이 있는 구역에 적용 |
-| insert:field | 아직 | 누름틀 |
+| insert:field | 됨 | 입력 → 누름틀…: 캐럿 자리(본문·표 셀)에 빈 누름틀. 안내문이 보이다가 입력하면 그 내용이 누름틀 값이 됩니다. |
 | insert:caption-toggle | 부분 | 개체 → 캡션 넣기/빼기(그림·도형): 아래쪽 "그림 N" 캡션, 폭 30mm·간격 3mm(웹 편집기 기본값). 캡션 글자는 아직 고치지 못합니다. |
 | insert:group-shapes, ungroup-shapes | 됨 | 개체를 고른 뒤 Shift-클릭으로 더 고르고 개체 → 개체 묶기. 묶음을 고르고 개체 풀기(한 단계) |
 
@@ -161,5 +162,5 @@
 | view:toggle-clip | 됨 | 보기 → 쪽 밖 내용 자르기 |
 | view:toggle-grid | 됨 | 보기 → 격자 보기: 본문 모서리에서 시작하는 격자를 화면에만 그립니다(문서는 그대로). |
 | view:grid-settings | 부분 | 보기 → 격자 설정…: 모양(점·가로줄·세로줄·둘 다)과 가로·세로 간격(1~100mm). 개체를 격자에 맞추기(자석)와 기준점·오프셋은 아직 — 개체 끌어 옮기기가 아직 없습니다. |
-| view:form-mode | 아직 | 양식 모드(누름틀만 입력) |
+| view:form-mode | 됨 | 보기 → 양식 모드: 편집 가능한 누름틀 안의 글자만 고칠 수 있고(엔진이 다른 편집·명령을 거절), Tab·Shift-Tab으로 누름틀 사이를 옮깁니다. |
 | view:toolbox-basic, view:toolbox-format | 됨 | 창의 도구 상자(저장·실행 취소·찾기·인쇄, 글자·정렬·목록·표·그림). 보기 → 도구 상자 보기·사용자화 |

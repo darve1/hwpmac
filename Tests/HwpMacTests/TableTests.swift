@@ -424,3 +424,103 @@ final class EquationTests: XCTestCase {
         }
     }
 }
+
+@MainActor
+final class ClickHereTests: XCTestCase {
+    /// 누름틀 넣기, filling it by typing, 누름틀 고치기, and saving in each format.
+    func testClickHereFieldInsertFillEditAndSave() throws {
+        let engine = try DocumentEngine(data: Data(), name: "click here")
+        defer { engine.close() }
+        let view = PagesView(engine: engine)
+        view.beginEditingAtStart()
+        view.insertText("성명: ", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let edit = NSMenuItem(title: "누름틀 고치기…", action: #selector(PagesView.editField(_:)), keyEquivalent: "")
+        XCTAssertFalse(view.validateMenuItem(edit))
+        _ = engine.submit(.action(.insertField(guide: "이름", memo: "", name: "person", editable: true)))
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(view.validateMenuItem(edit))
+        view.insertText("홍길동", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = engine.submit(.action(.setFieldProperties(guide: "성명", memo: "필수", name: "person", editable: true)))
+        _ = try engine.sync { _ in }
+        // The typed text is the field's value: select it and copy it.
+        let value = try engine.sync { editor -> String in
+            let at = { TextPosition(section: 0, paragraph: 0, scalarOffset: $0) }
+            try editor.select(TextSelection(anchor: at(4), focus: at(7)))
+            return try editor.copy()
+        }
+        XCTAssertEqual(value, "홍길동")
+
+        for format in [SaveFormat.hwp, .hwpx] {
+            let prepared = try engine.prepareSave(format)
+            try engine.cancelSave(prepared.token)
+            XCTAssertEqual(prepared.report?.losses.count ?? 0, 0, "\(format)")
+            let reopened = try DocumentEngine(data: prepared.data, name: "reopened")
+            defer { reopened.close() }
+            _ = try reopened.sync { try $0.select(.collapsed(at: TextPosition(section: 0, paragraph: 0, scalarOffset: 5))) }
+            let field = try reopened.query(.clickHereAtCaret)
+            XCTAssertEqual(field["found"]?.bool, true, "\(format)")
+            XCTAssertEqual(field["guide"]?.string, "성명", "\(format)")
+            XCTAssertEqual(field["memo"]?.string, "필수", "\(format)")
+            XCTAssertEqual(field["name"]?.string, "person", "\(format)")
+        }
+    }
+}
+
+@MainActor
+final class FormModeTests: XCTestCase {
+    /// 양식 모드: Tab goes from 누름틀 to 누름틀, typing fills them, and text outside stays put.
+    func testFormModeTabsBetweenFieldsAndRefusesOtherEdits() throws {
+        let engine = try DocumentEngine(data: Data(), name: "form mode")
+        defer { engine.close() }
+        let view = PagesView(engine: engine)
+        view.beginEditingAtStart()
+        view.insertText("이름 ", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = engine.submit(.action(.insertField(guide: "이름", memo: "", name: "a", editable: true)))
+        view.insertText("홍길동", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = try engine.sync { try $0.select(.collapsed(at: TextPosition(section: 0, paragraph: 0, scalarOffset: 6))) }
+        view.insertText(" 나이 ", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = engine.submit(.action(.insertField(guide: "나이", memo: "", name: "b", editable: true)))
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let item = NSMenuItem(title: "양식 모드", action: #selector(PagesView.toggleFormMode(_:)), keyEquivalent: "")
+        view.toggleFormMode(item)
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(view.validateMenuItem(item))
+        XCTAssertEqual(item.state, .on)
+
+        // Tab from the start selects the first field's value, then the second (empty) field.
+        _ = try engine.sync { try $0.select(.collapsed(at: .documentStart)) }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        view.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(view.selectedRange().length, 3)
+        view.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        view.insertText("30", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = try engine.sync { _ in }
+        // Text outside the fields cannot change.
+        _ = try engine.sync { try $0.select(.collapsed(at: .documentStart)) }
+        view.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = try engine.sync { _ in }
+        view.toggleFormMode(item)
+        _ = try engine.sync { _ in }
+        let text = try engine.sync { editor -> String in
+            try editor.select(TextSelection(anchor: .documentStart, focus: TextPosition(section: 0, paragraph: 0, scalarOffset: 2)))
+            return try editor.copy()
+        }
+        XCTAssertEqual(text, "이름")
+        let filled = try engine.sync { editor -> String in
+            let at = { TextPosition(section: 0, paragraph: 0, scalarOffset: $0) }
+            try editor.select(TextSelection(anchor: at(10), focus: at(12)))
+            return try editor.copy()
+        }
+        XCTAssertEqual(filled, "30")
+    }
+}

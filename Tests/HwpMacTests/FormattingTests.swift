@@ -386,3 +386,61 @@ final class FormattingTests: XCTestCase {
         }
     }
 }
+
+@MainActor
+final class StyleEditTests: XCTestCase {
+    /// 스타일 고치기 reaches the paragraphs that use the style, and survives saving.
+    func testStyleChangesApplyToItsParagraphsAndSurviveSave() throws {
+        let engine = try DocumentEngine(data: Data(), name: "styles")
+        defer { engine.close() }
+        let view = PagesView(engine: engine)
+        view.beginEditingAtStart()
+        view.insertText("바탕", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = try engine.sync { _ in }
+        let count = try XCTUnwrap(engine.query(.styles)["styles"]).arrayCount
+        _ = engine.submit(.action(.createStyle(name: "강조", basedOn: 0)))
+        _ = engine.submit(.action(.applyStyle(count)))
+        _ = engine.submit(.action(.updateStyle(id: count, props: ["name": .string("강조 문단")],
+                                                charProps: ["bold": .bool(true)], paraProps: ["alignment": .string("center")])))
+        _ = try engine.sync { try $0.select(TextSelection(anchor: .documentStart, focus: TextPosition.documentStart.offset(by: 1))) }
+        XCTAssertEqual(try engine.query(.charProperties)["bold"]?.bool, true)
+        XCTAssertEqual(try engine.query(.paraProperties)["alignment"]?.string, "center")
+
+        for format in [SaveFormat.hwp, .hwpx] {
+            let prepared = try engine.prepareSave(format)
+            try engine.cancelSave(prepared.token)
+            let reopened = try DocumentEngine(data: prepared.data, name: "reopened")
+            defer { reopened.close() }
+            _ = try reopened.sync { try $0.select(.collapsed(at: .documentStart)) }
+            let styles = try reopened.query(.styles)
+            XCTAssertEqual(styles["current"]?.number, Double(count), "\(format)")
+            XCTAssertEqual(styles["styles"]?[count]?["name"]?.string, "강조 문단", "\(format)")
+            XCTAssertEqual(try reopened.query(.styleDetail(count))["charProps"]?["bold"]?.bool, true, "\(format)")
+        }
+    }
+}
+
+@MainActor
+final class NumberingShapeTests: XCTestCase {
+    func testNumberingPresetAppliesAndSurvivesSave() throws {
+        let engine = try DocumentEngine(data: Data(), name: "numbering")
+        defer { engine.close() }
+        let view = PagesView(engine: engine)
+        view.beginEditingAtStart()
+        view.insertText("장", replacementRange: NSRange(location: NSNotFound, length: 0))
+        let chapter = PagesView.numberingPresets[4]
+        _ = engine.submit(.action(.applyNumberingShape(levelFormats: chapter.levels, numberFormats: chapter.codes,
+                                                       restart: 0, start: 1)))
+        _ = try engine.sync { _ in }
+        XCTAssertEqual(try engine.query(.paraProperties)["headType"]?.string, "Number")
+        for format in [SaveFormat.hwp, .hwpx] {
+            let prepared = try engine.prepareSave(format)
+            try engine.cancelSave(prepared.token)
+            XCTAssertEqual(prepared.report?.losses.count ?? 0, 0, "\(format)")
+            let reopened = try DocumentEngine(data: prepared.data, name: "reopened")
+            defer { reopened.close() }
+            _ = try reopened.sync { try $0.select(.collapsed(at: .documentStart)) }
+            XCTAssertEqual(try reopened.query(.paraProperties)["headType"]?.string, "Number", "\(format)")
+        }
+    }
+}

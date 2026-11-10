@@ -474,9 +474,12 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         case "deleteBackward:", "deleteBackwardByDecomposingPreviousCharacter:": .deleteBackward
         case "deleteForward:": .deleteForward
         case "insertNewline:", "insertLineBreak:", "insertParagraphSeparator:": .splitParagraph
-        case "insertTab:" where inTable: .nextCell
-        case "insertBacktab:" where inTable: .previousCell
+        case "insertTab:" where inTable && !snapshot.marks.formMode: .nextCell
+        case "insertBacktab:" where inTable && !snapshot.marks.formMode: .previousCell
         default: nil
+        }
+        if snapshot.marks.formMode, selector == #selector(insertTab(_:)) || selector == #selector(insertBacktab(_:)) {
+            return moveToFormField(forward: selector == #selector(insertTab(_:)))
         }
         if let command {
             commitInput()
@@ -1206,6 +1209,30 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     @objc func toggleControlCodes(_ sender: Any?) { setMarks { $0.controlCodes.toggle() } }
     @objc func toggleTransparentBorders(_ sender: Any?) { setMarks { $0.transparentBorders.toggle() } }
     @objc func toggleClip(_ sender: Any?) { setMarks { $0.clip.toggle() } }
+    @objc func toggleFormMode(_ sender: Any?) { setMarks { $0.formMode.toggle() } }
+
+    /// Tab in 양식 모드: select the next (or previous) 누름틀 editable in forms, wrapping around.
+    func moveToFormField(forward: Bool) {
+        commitInput()
+        guard let selection = snapshot.selection,
+              case let .array(items)? = (try? engine.query(.formFields))?["fields"] else { return NSSound.beep() }
+        let fields: [(start: TextPosition, length: Int)] = items.compactMap { item in
+            guard item["editable"]?.bool == true, let position = item["position"],
+                  let start = try? JSONDecoder().decode(TextPosition.self, from: JSONEncoder().encode(position)) else { return nil }
+            return (start, Int(item["length"]?.number ?? 0))
+        }
+        func key(_ position: TextPosition) -> [Int] {
+            [position.section, position.paragraph] + position.cellPath.flatMap { [$0.control, $0.cell, $0.paragraph] }
+                + [Int.max, position.scalarOffset]
+        }
+        // Forward from the selection's end, backward from its start.
+        let ends = [key(selection.anchor), key(selection.focus)].sorted { $0.lexicographicallyPrecedes($1) }
+        let next = forward
+            ? fields.first { ends[1].lexicographicallyPrecedes(key($0.start)) } ?? fields.first
+            : fields.last { key($0.start).lexicographicallyPrecedes(ends[0]) } ?? fields.last
+        guard let next else { return NSSound.beep() }
+        submit(.select(TextSelection(anchor: next.start, focus: next.start.offset(by: next.length))))
+    }
 
     var grid = GridSettings.load() {
         didSet {
@@ -1339,6 +1366,66 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     @objc func removeField(_ sender: Any?) {
         commitInput()
         submit(.action(.removeField))
+    }
+
+    private var clickHereAtCaret: JSONValue {
+        guard snapshot.selection != nil, !hasSelection,
+              let field = try? engine.query(.clickHereAtCaret), field["found"]?.bool == true else { return .null }
+        return field
+    }
+
+    /// 누름틀 넣기…: an empty field at the caret that shows its guide until filled.
+    @objc func insertField(_ sender: Any?) {
+        guard let window, snapshot.selection != nil, !hasSelection else { return NSSound.beep() }
+        commitInput()
+        Self.presentField(title: "누름틀 넣기", current: .null, in: window) { [weak self] guide, memo, name, editable in
+            self?.submit(.action(.insertField(guide: guide, memo: memo, name: name, editable: editable)))
+        }
+    }
+
+    /// 누름틀 고치기…: the field around the caret.
+    @objc func editField(_ sender: Any?) {
+        guard let window else { return NSSound.beep() }
+        commitInput()
+        let field = clickHereAtCaret
+        guard field != .null else {
+            onStatus?("캐럿을 누름틀 안에 두세요.")
+            return NSSound.beep()
+        }
+        Self.presentField(title: "누름틀 고치기", current: field, in: window) { [weak self] guide, memo, name, editable in
+            self?.submit(.action(.setFieldProperties(guide: guide, memo: memo, name: name, editable: editable)))
+        }
+    }
+
+    private static func presentField(title: String, current: JSONValue, in window: NSWindow,
+                                     done: @escaping (String, String, String, Bool) -> Void) {
+        let guide = NSTextField(string: current["guide"]?.string ?? "")
+        guide.placeholderString = "이곳을 마우스로 누르고 내용을 입력하세요."
+        let memo = NSTextField(string: current["memo"]?.string ?? "")
+        let name = NSTextField(string: current["name"]?.string ?? "")
+        for field in [guide, memo, name] { field.widthAnchor.constraint(equalToConstant: 260).isActive = true }
+        let editable = NSButton(checkboxWithTitle: "양식 모드에서 편집 가능", target: nil, action: nil)
+        editable.state = current["editable"]?.bool == false ? .off : .on
+        let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "안내문:"), guide],
+            [NSTextField(labelWithString: "메모:"), memo],
+            [NSTextField(labelWithString: "필드 이름:"), name],
+            [NSView(), editable],
+        ])
+        grid.column(at: 0).xPlacement = .trailing
+        grid.frame = NSRect(x: 0, y: 0, width: 360, height: 112)
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = "누름틀은 안내문을 보여 주다가 내용을 입력하면 그 내용으로 바뀝니다."
+        alert.accessoryView = grid
+        alert.addButton(withTitle: "확인")
+        alert.addButton(withTitle: "취소")
+        alert.window.initialFirstResponder = guide
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            let text = guide.stringValue.trimmingCharacters(in: .whitespaces)
+            done(text.isEmpty ? guide.placeholderString ?? "" : text, memo.stringValue, name.stringValue, editable.state == .on)
+        }
     }
 
     /// 구역 설정…: start page number, what the first page hides, tab spacing.
@@ -1597,6 +1684,63 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         }
     }
 
+    /// 문단 번호 모양 presets of the web editor: level formats (`^n` is the level's number) and number codes
+    /// (0 1·2·3, 1 ①, 2 I, 3 i, 4 A, 5 a, 7 一, 8 가).
+    static let numberingPresets: [(title: String, levels: [String], codes: [Int])] = [
+        ("번호 없음", [], []),
+        ("1. 가. 1) 가) (1) (가) ①", ["^1.", "^2.", "^3)", "^4)", "(^5)", "(^6)", "^7"], [0, 8, 0, 8, 0, 8, 1]),
+        ("1. 1. 1. …", Array(repeating: "", count: 7).enumerated().map { "^\($0.offset + 1)." }, Array(repeating: 0, count: 7)),
+        ("I. A. 1. a. (1) (a) ①", ["^1.", "^2.", "^3.", "^4.", "(^5)", "(^6)", "^7"], [2, 4, 0, 5, 0, 5, 1]),
+        ("제1장 제1절 1. 가. 1) 가) (1)", ["제^1장", "제^2절", "^3.", "^4.", "^5)", "^6)", "(^7)"], [0, 0, 0, 8, 0, 8, 0]),
+        ("一 二 三", (1...7).map { "^\($0)" }, Array(repeating: 7, count: 7)),
+        ("① ② ③", (1...7).map { "^\($0)" }, Array(repeating: 1, count: 7)),
+    ]
+
+    /// 문단 번호 모양…: a numbering preset for the selected paragraphs, continuing or starting again.
+    @objc func showNumberingShape(_ sender: Any?) {
+        guard let window, snapshot.selection != nil else { return NSSound.beep() }
+        commitInput()
+        let preset = NSPopUpButton()
+        preset.addItems(withTitles: Self.numberingPresets.map(\.title))
+        preset.selectItem(at: 1)
+        let restart = NSPopUpButton()
+        restart.addItems(withTitles: ["앞 번호에 이어서", "새 번호로 시작"])
+        let start = NSTextField(string: "1")
+        start.widthAnchor.constraint(equalToConstant: 50).isActive = true
+        let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "번호 모양:"), preset],
+            [NSTextField(labelWithString: "번호 매기기:"), restart],
+            [NSTextField(labelWithString: "시작 번호:"), start],
+        ])
+        grid.column(at: 0).xPlacement = .trailing
+        grid.frame = NSRect(x: 0, y: 0, width: 330, height: 84)
+        let alert = NSAlert()
+        alert.messageText = "문단 번호 모양"
+        alert.informativeText = "고른 문단에 새 번호 모양을 붙입니다. 시작 번호는 새 번호로 시작할 때 씁니다."
+        alert.accessoryView = grid
+        alert.addButton(withTitle: "설정")
+        alert.addButton(withTitle: "취소")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            guard let number = Int(start.stringValue.trimmingCharacters(in: .whitespaces)), (1...65535).contains(number) else {
+                self?.onStatus?("시작 번호는 1~65535입니다.")
+                return NSSound.beep()
+            }
+            let chosen = Self.numberingPresets[max(preset.indexOfSelectedItem, 0)]
+            self?.submit(.action(.applyNumberingShape(levelFormats: chosen.levels, numberFormats: chosen.codes,
+                                                      restart: restart.indexOfSelectedItem == 1 ? 2 : 0, start: number)))
+        }
+    }
+
+    /// 스타일…: rename the document's styles, change their 모양, add and delete them.
+    @objc func showStyleDialog(_ sender: Any?) {
+        guard let window, snapshot.selection != nil else { return NSSound.beep() }
+        commitInput()
+        StyleSheet.present(engine: engine, in: window) { [weak self] action in
+            self?.submit(.action(action))
+        }
+    }
+
     @objc func showParagraphShape(_ sender: Any?) {
         guard let window, snapshot.selection != nil else { return NSSound.beep() }
         commitInput()
@@ -1680,6 +1824,8 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
             return copiedFormat != nil && snapshot.selection != nil
         case #selector(showCharacterShape(_:)):
             return hasSelection
+        case #selector(showStyleDialog(_:)), #selector(showNumberingShape(_:)):
+            return snapshot.selection != nil
         case #selector(showParagraphShape(_:)):
             return snapshot.selection != nil
         case #selector(increaseLineSpacing(_:)), #selector(decreaseLineSpacing(_:)):
@@ -1759,6 +1905,9 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
             return true
         case #selector(showGridSettings(_:)):
             return true
+        case #selector(toggleFormMode(_:)):
+            menuItem.state = snapshot.marks.formMode ? .on : .off
+            return true
         case #selector(toggleClip(_:)):
             menuItem.state = snapshot.marks.clip ? .on : .off
             return true
@@ -1770,6 +1919,10 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
             return inBody
         case #selector(removeField(_:)):
             return caretInField
+        case #selector(insertField(_:)):
+            return snapshot.selection != nil && !hasSelection
+        case #selector(editField(_:)):
+            return clickHereAtCaret != .null
         case #selector(applyBullet(_:)):
             return snapshot.selection != nil
         case #selector(showCellProperties(_:)), #selector(showCellFormula(_:)), #selector(applyEasyFormula(_:)),

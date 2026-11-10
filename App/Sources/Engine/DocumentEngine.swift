@@ -328,7 +328,7 @@ final class DocumentEngine: DocumentEngineClient, @unchecked Sendable {
         let reasons: [(String, String)] = [
             ("holds an object", "그림·표 같은 개체가 든 범위는 글자 편집으로 지울 수 없습니다."),
             ("table-cell boundary", "선택 범위가 표 셀 경계를 넘을 수 없습니다."),
-            ("inline-object", "글자처럼 취급하는 개체(표·그림 등)가 있는 문단은 아직 편집할 수 없습니다."),
+            ("in form mode", "양식 모드에서는 편집할 수 있는 누름틀 안의 글자만 고칠 수 있습니다."),
             ("top-level tables only", "표 안에 든 표는 줄·칸을 편집할 수 없습니다."),
             ("breaks go into body text", "쪽·단 나누기는 본문에서만 됩니다."),
             ("HTML paste into table cells", "표 셀에는 서식 없는 글자만 붙일 수 있습니다."),

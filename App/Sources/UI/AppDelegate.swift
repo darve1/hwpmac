@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         replaceItem.keyEquivalentModifierMask = [.command, .option]
         editMenu.addItem(withTitle: "다음 찾기", action: #selector(DocumentWindowController.findNext(_:)), keyEquivalent: "g")
         editMenu.addItem(withTitle: "이전 찾기", action: #selector(DocumentWindowController.findPrevious(_:)), keyEquivalent: "G")
+        editMenu.addItem(withTitle: "누름틀 고치기…", action: #selector(PagesView.editField(_:)), keyEquivalent: "")
         editMenu.addItem(withTitle: "누름틀 지우기", action: #selector(PagesView.removeField(_:)), keyEquivalent: "")
         let goTo = editMenu.addItem(withTitle: "쪽 찾아가기…", action: #selector(PagesView.showGoToPage(_:)), keyEquivalent: "g")
         goTo.keyEquivalentModifierMask = [.command, .option]
@@ -162,6 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         formatMenu.addItem(withTitle: "개요 수준 낮추기", action: #selector(PagesView.increaseOutlineLevel(_:)), keyEquivalent: "")
         formatMenu.addItem(withTitle: "개요 수준 높이기", action: #selector(PagesView.decreaseOutlineLevel(_:)), keyEquivalent: "")
         formatMenu.addItem(withTitle: "문단 번호", action: #selector(PagesView.toggleNumbering(_:)), keyEquivalent: "")
+        formatMenu.addItem(withTitle: "문단 번호 모양…", action: #selector(PagesView.showNumberingShape(_:)), keyEquivalent: "")
         formatMenu.addItem(withTitle: "글머리표", action: #selector(PagesView.toggleBullets(_:)), keyEquivalent: "")
         let bulletMenu = NSMenu(title: "글머리표 모양")
         for bullet in ["●", "○", "■", "□", "◆", "◇", "▶", "✓", "※", "-"] {
@@ -184,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         insertMenu.addItem(withTitle: "하이퍼링크…", action: #selector(PagesView.editHyperlink(_:)), keyEquivalent: "k")
         insertMenu.addItem(withTitle: "하이퍼링크 지우기", action: #selector(PagesView.removeHyperlink(_:)), keyEquivalent: "")
         insertMenu.addItem(withTitle: "책갈피…", action: #selector(PagesView.addBookmark(_:)), keyEquivalent: "")
+        insertMenu.addItem(withTitle: "누름틀…", action: #selector(PagesView.insertField(_:)), keyEquivalent: "")
         insertMenu.addItem(.separator())
         insertMenu.addItem(withTitle: "각주…", action: #selector(PagesView.insertNote(_:)), keyEquivalent: "").tag = 0
         insertMenu.addItem(withTitle: "미주…", action: #selector(PagesView.insertNote(_:)), keyEquivalent: "").tag = 1
@@ -293,6 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(withTitle: "조판 부호", action: #selector(PagesView.toggleControlCodes(_:)), keyEquivalent: "")
         viewMenu.addItem(withTitle: "투명 선", action: #selector(PagesView.toggleTransparentBorders(_:)), keyEquivalent: "")
         viewMenu.addItem(withTitle: "쪽 밖 내용 자르기", action: #selector(PagesView.toggleClip(_:)), keyEquivalent: "")
+        viewMenu.addItem(withTitle: "양식 모드", action: #selector(PagesView.toggleFormMode(_:)), keyEquivalent: "")
         viewMenu.addItem(withTitle: "격자 보기", action: #selector(PagesView.toggleGrid(_:)), keyEquivalent: "")
         viewMenu.addItem(withTitle: "격자 설정…", action: #selector(PagesView.showGridSettings(_:)), keyEquivalent: "")
         addSubmenu(viewMenu, titled: "보기", to: mainMenu)
@@ -326,6 +330,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.tag = style.id
             item.state = style.id == current ? .on : .off
         }
+        menu.addItem(.separator())
+        let edit = menu.addItem(withTitle: "스타일 편집…", action: #selector(PagesView.showStyleDialog(_:)), keyEquivalent: "")
+        edit.keyEquivalentModifierMask = []
     }
 
     private func addSubmenu(_ submenu: NSMenu, titled title: String, to menu: NSMenu) {
