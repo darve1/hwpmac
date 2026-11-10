@@ -71,6 +71,15 @@ func reread(_ url: URL) throws -> (pageCount: Int, text: String) {
     return (pageCount, text)
 }
 
+/// Whether the reopened file's text holds every marker, searched in the document
+/// model. Page text extraction leaves out the text of a line that also holds a
+/// treat-as-char table, so it cannot vouch for edits in such paragraphs.
+func modelContains(_ url: URL, _ markers: [String]) throws -> Bool {
+    let editor = try DocumentEditor(session: RhwpSession(data: Data(contentsOf: url)))
+    try editor.select(.collapsed(at: .documentStart))
+    return try markers.allSatisfy { try editor.find($0, forward: true, caseSensitive: true) }
+}
+
 /// The first marker's range in `paragraph`.
 func markerSelection(_ paragraph: Int) -> TextSelection {
     let start = TextPosition(section: 0, paragraph: paragraph, scalarOffset: 0)
@@ -205,10 +214,11 @@ func check(_ input: URL, index: Int) -> [String: Any] {
                 "losses": lossSummary(report),
                 "reopenedPages": pageCount,
                 "markersFound": try stage("reread-cell-\(format.rawValue)") { () -> Bool in
-                    guard let editedCell else { return text.contains(firstMarker) && text.contains(secondMarker) }
+                    guard let editedCell else { return try modelContains(url, [firstMarker, secondMarker]) }
                     return try cellText(url, cell: editedCell).hasPrefix(cellMarker + "\n" + cellSecondMarker)
                 },
                 "textDelta": text.count - (baseline[format.rawValue] ?? 0),
+                "markersInPageText": text.contains(firstMarker) && text.contains(secondMarker),
             ]
             if formatting, let paragraph = result["editedParagraph"] as? Int {
                 checks["formattingKept"] = try stage("reread-format-\(format.rawValue)") {

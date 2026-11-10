@@ -217,6 +217,8 @@ enum EditAction: Codable, Sendable {
     case insertPicture(data: Data, fileExtension: String, width: Int, height: Int, pixelWidth: Int, pixelHeight: Int)
     /// rectangle, ellipse, line or textbox, floating where the caret is; HWPUNIT.
     case insertShape(kind: String, width: Int, height: Int)
+    /// 수식 at the caret (treat-as-char): 한글's equation script, size in HWPUNIT (1000 = 10 pt).
+    case insertEquation(script: String, fontSize: Int)
     case deleteObject(ObjectAddress)
     /// Engine property names (`width`, `rotationAngle`, `borderColor`, `fillBgColor`,
     /// `hasCaption`, …) of a picture, shape or table.
@@ -288,6 +290,7 @@ enum EditAction: Codable, Sendable {
             ["action": "insertPicture", "data": data.base64EncodedString(), "extension": fileExtension,
              "width": width, "height": height, "naturalWidth": pixelWidth, "naturalHeight": pixelHeight]
         case let .insertShape(kind, width, height): ["action": "insertShape", "kind": kind, "width": width, "height": height]
+        case let .insertEquation(script, fontSize): ["action": "insertEquation", "script": script, "fontSize": fontSize]
         case let .deleteObject(object): ["action": "deleteObject"].merging(object.json) { $1 }
         case let .setObjectProperties(object, props):
             ["action": "setObjectProperties", "props": JSONValue.object(props).object].merging(object.json) { $1 }

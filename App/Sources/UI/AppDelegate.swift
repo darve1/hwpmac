@@ -174,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let insertMenu = NSMenu(title: "입력")
         insertMenu.addItem(withTitle: "그림…", action: #selector(PagesView.insertPicture(_:)), keyEquivalent: "")
+        insertMenu.addItem(withTitle: "수식…", action: #selector(PagesView.insertEquation(_:)), keyEquivalent: "")
         let shapeMenu = NSMenu(title: "도형")
         for (index, title) in ["사각형", "타원", "직선", "글상자"].enumerated() {
             shapeMenu.addItem(withTitle: title, action: #selector(PagesView.insertShape(_:)), keyEquivalent: "").tag = index

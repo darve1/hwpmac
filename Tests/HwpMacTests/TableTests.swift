@@ -387,3 +387,40 @@ final class NoteTests: XCTestCase {
         }
     }
 }
+
+@MainActor
+final class EquationTests: XCTestCase {
+    /// 수식 넣기 at the caret, picking it, 수식 고치기 and saving in each format.
+    func testEquationInsertPickEditAndSave() throws {
+        let engine = try DocumentEngine(data: Data(), name: "equation")
+        defer { engine.close() }
+        let view = PagesView(engine: engine)
+        view.beginEditingAtStart()
+        view.insertText("식 ", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        _ = engine.submit(.action(.insertEquation(script: "a over b", fontSize: 1000)))
+        view.insertText(" 끝", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let equation = try XCTUnwrap(view.pickableObjects(page: 0).first { $0.kind == "equation" })
+        view.selectObject(view.object(atPage: 0, x: equation.frame.midX, y: equation.frame.midY))
+        XCTAssertEqual(view.selectedObject?.kind, "equation")
+        let rotate = NSMenuItem(title: "회전", action: #selector(PagesView.rotatePictureRight(_:)), keyEquivalent: "")
+        XCTAssertFalse(view.validateMenuItem(rotate))
+        _ = engine.submit(.action(.setObjectProperties(equation.address, ["script": .string("x^2 + 1")])))
+        _ = try engine.sync { _ in }
+
+        for format in [SaveFormat.hwp, .hwpx] {
+            let prepared = try engine.prepareSave(format)
+            try engine.cancelSave(prepared.token)
+            XCTAssertEqual(prepared.report?.losses.count ?? 0, 0, "\(format)")
+            let reopened = try DocumentEngine(data: prepared.data, name: "reopened")
+            defer { reopened.close() }
+            _ = try reopened.sync { try $0.select(.collapsed(at: .documentStart)) }
+            let props = try reopened.query(.objectProperties(equation.address))
+            XCTAssertEqual(props["kind"]?.string, "equation", "\(format)")
+            XCTAssertEqual(props["script"]?.string, "x^2 + 1", "\(format)")
+        }
+    }
+}

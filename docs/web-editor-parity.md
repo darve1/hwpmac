@@ -129,7 +129,8 @@
 | insert:picture-props | 부분 | 개체 속성…: 너비·높이(비율 유지), 회전, 캡션. 위치·배치·자르기·효과는 아직 |
 | insert:shape | 됨 | 입력 → 도형: 사각형, 타원, 직선(30×20mm, 캐럿 자리에 글 앞으로). 고르기·지우기·순서 바꾸기 됨 |
 | insert:textbox | 부분 | 빈 글상자를 넣을 수 있지만 안의 글자는 아직 고치지 못합니다. |
-| insert:equation, chart-data-edit, equation-edit | 아직 | |
+| insert:equation, insert:equation-edit | 됨 | 입력 → 수식…: 한글 수식 문법(a over b, sqrt x, x^2 …)과 크기(pt)로 캐럿 자리에 글자처럼 넣습니다. 수식을 눌러 고르고 개체 속성…으로 고칩니다. 편집기는 문법만 받고 미리보기·기호 단추는 없습니다. |
+| insert:chart-data-edit | 아직 | 차트 데이터 |
 | insert:footnote, insert:endnote | 됨 | 입력 → 각주…/미주…: 캐럿 자리에 번호를 넣고 대화상자에서 글자(여러 줄은 문단)를 씁니다. 번호 바로 뒤에서 각주/미주 고치기…·지우기. 번호는 문단에서 한 자리를 차지합니다. |
 | insert:note-close | 아직 | 쪽 위 각주 편집 모드용(이 앱은 대화상자로 고칩니다) |
 | insert:endnote-shape | 됨 | 입력 → 미주 모양…(각주 모양…도): 번호 모양, 앞·뒤 장식 문자, 시작 번호, 번호 매기기, 위치. 캐럿이 있는 구역에 적용 |

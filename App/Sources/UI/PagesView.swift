@@ -740,7 +740,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         guard snapshot.selection != nil, case let .array(items)? = (try? engine.query(.pageObjects(page: page)))?["controls"]
         else { return [] }
         return items.compactMap { item in
-            guard let kind = item["type"]?.string, ["image", "shape", "group"].contains(kind),
+            guard let kind = item["type"]?.string, ["image", "shape", "group", "equation"].contains(kind),
                   item["wrap"]?.string != "behindText", item["cellIdx"] == nil, item["headerFooter"] == nil,
                   let section = item["secIdx"]?.number, let paragraph = item["paraIdx"]?.number,
                   let control = item["controlIdx"]?.number,
@@ -843,6 +843,43 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         submit(.action(.insertShape(kind: kind, width: Int(30 * millimetre), height: kind == "line" ? 0 : Int(20 * millimetre))))
     }
 
+    /// 수식…: 한글's equation script at the caret, as an object the text flows around like a character.
+    @objc func insertEquation(_ sender: Any?) {
+        guard let window, inBody, !hasSelection else { return NSSound.beep() }
+        commitInput()
+        Self.presentEquation(title: "수식 넣기", script: "", points: 10, in: window) { [weak self] script, points in
+            self?.submit(.action(.insertEquation(script: script, fontSize: Int((points * 100).rounded()))))
+        }
+    }
+
+    private static func presentEquation(title: String, script: String, points: Double, in window: NSWindow,
+                                        done: @escaping (String, Double) -> Void) {
+        let field = NSTextField(string: script)
+        field.placeholderString = "a over b, sqrt {x^2 + 1}, sum _{i=1} ^n i"
+        field.widthAnchor.constraint(equalToConstant: 320).isActive = true
+        let size = NSTextField(string: String(format: "%g", points))
+        size.widthAnchor.constraint(equalToConstant: 50).isActive = true
+        let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "수식:"), field],
+            [NSTextField(labelWithString: "크기 (pt):"), size],
+        ])
+        grid.column(at: 0).xPlacement = .trailing
+        grid.frame = NSRect(x: 0, y: 0, width: 400, height: 56)
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = "한글 수식 문법으로 씁니다. 예: 분수 a over b, 제곱근 sqrt x, 위첨자 x^2, 아래첨자 x_i."
+        alert.accessoryView = grid
+        alert.addButton(withTitle: "확인")
+        alert.addButton(withTitle: "취소")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { response in
+            let script = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard response == .alertFirstButtonReturn, !script.isEmpty else { return }
+            guard let points = Double(size.stringValue), (1...300).contains(points) else { return NSSound.beep() }
+            done(script, points)
+        }
+    }
+
     @objc func deleteSelectedObject(_ sender: Any?) {
         guard let selected = selectedObject else { return NSSound.beep() }
         selectedObject = nil
@@ -858,7 +895,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     @objc func groupObjects(_ sender: Any?) {
         let objects = selectedObjects
         guard objects.count >= 2, let section = objects.first?.address.section,
-              objects.allSatisfy({ $0.address.section == section }) else { return NSSound.beep() }
+              objects.allSatisfy({ $0.address.section == section && $0.kind != "equation" }) else { return NSSound.beep() }
         selectsResultObject = true
         submit(.action(.groupObjects(section: section, objects: objects.map(\.address))))
     }
@@ -900,11 +937,20 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
     @objc func flipPictureHorizontally(_ sender: Any?) { flipObject("horzFlip") }
     @objc func flipPictureVertically(_ sender: Any?) { flipObject("vertFlip") }
 
-    /// 개체 속성…: size, rotation and caption; line and fill for shapes.
+    /// 개체 속성…: size, rotation and caption; line and fill for shapes; the script of an equation.
     @objc func showObjectProperties(_ sender: Any?) {
         guard let window, let object = selectedObject else { return NSSound.beep() }
         let props = objectProperties(object.address)
         guard props != .null else { return NSSound.beep() }
+        if object.kind == "equation" {
+            let size = (props["fontSize"]?.number ?? 1000) / 100
+            return Self.presentEquation(title: "수식 고치기", script: props["script"]?.string ?? "", points: size, in: window) {
+                [weak self] script, points in
+                self?.submit(.action(.setObjectProperties(object.address, [
+                    "script": .string(script), "fontSize": .number((points * 100).rounded()),
+                ])))
+            }
+        }
         ObjectPropertiesSheet.present(props, in: window) { [weak self] changed in
             self?.submit(.action(.setObjectProperties(object.address, changed)))
         }
@@ -918,7 +964,7 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
 
     /// 캡션 넣기 / 빼기 on the selected picture or shape, else on the caret's table.
     @objc func toggleCaption(_ sender: Any?) {
-        guard let address = selectedObject?.address ?? caretTable else { return NSSound.beep() }
+        guard selectedObject?.kind != "equation", let address = selectedObject?.address ?? caretTable else { return NSSound.beep() }
         commitInput()
         let props = objectProperties(address)
         let on = props["hasCaption"]?.bool != true
@@ -1669,17 +1715,22 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         case #selector(groupObjects(_:)):
             let objects = selectedObjects
             return objects.count >= 2 && Set(objects.map(\.address.section)).count == 1
+                && objects.allSatisfy { $0.kind != "equation" }
         case #selector(ungroupObject(_:)):
             return selectedObject?.kind == "group"
         case #selector(bringObjectToFront(_:)), #selector(bringObjectForward(_:)), #selector(sendObjectBackward(_:)),
              #selector(sendObjectToBack(_:)):
             // Stacking order is for shapes, as in the web editor.
             return selectedObject?.kind == "shape" || selectedObject?.kind == "group"
-        case #selector(showObjectProperties(_:)), #selector(rotatePictureRight(_:)), #selector(rotatePictureLeft(_:)),
-             #selector(flipPictureHorizontally(_:)), #selector(flipPictureVertically(_:)):
+        case #selector(showObjectProperties(_:)):
             return selectedObject != nil
+        case #selector(rotatePictureRight(_:)), #selector(rotatePictureLeft(_:)),
+             #selector(flipPictureHorizontally(_:)), #selector(flipPictureVertically(_:)):
+            return selectedObject.map { $0.kind != "equation" } ?? false
+        case #selector(insertEquation(_:)):
+            return inBody && !hasSelection
         case #selector(toggleCaption(_:)):
-            guard let address = selectedObject?.address ?? caretTable else { return false }
+            guard selectedObject?.kind != "equation", let address = selectedObject?.address ?? caretTable else { return false }
             menuItem.title = objectProperties(address)["hasCaption"]?.bool == true ? "캡션 빼기" : "캡션 넣기"
             return true
         case #selector(editHyperlink(_:)), #selector(removeHyperlink(_:)), #selector(showSymbols(_:)):
