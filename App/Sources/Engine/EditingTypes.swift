@@ -238,6 +238,13 @@ enum EditAction: Codable, Sendable {
     case newPageNumber(Int)
     /// Removes the field around the caret.
     case removeField
+    /// 각주 (`footnote`) or 미주 (`endnote`) at the caret; each line of `text` is a note paragraph.
+    case insertNote(kind: String, text: String)
+    /// The text of the note whose marker is at the caret, and deleting that note.
+    case setNoteText(String)
+    case deleteNote
+    /// 각주 모양 / 미주 모양 (`footnote` or `endnote`) of the caret's section.
+    case setNoteShape(note: String, props: [String: JSONValue])
     /// 표 나누기 at the caret's row, and 표 붙이기 with the next table.
     case splitTable
     case attachNextTable
@@ -298,6 +305,10 @@ enum EditAction: Codable, Sendable {
         case let .setCellFormula(formula, format): ["action": "setCellFormula", "formula": formula, "format": format]
         case let .formatCellNumber(operation): ["action": "formatCellNumber", "operation": operation]
         case .removeField: ["action": "removeField"]
+        case let .insertNote(kind, text): ["action": "insertNote", "kind": kind, "text": text]
+        case let .setNoteText(text): ["action": "setNoteText", "text": text]
+        case .deleteNote: ["action": "deleteNote"]
+        case let .setNoteShape(note, props): ["action": "setNoteShape", "note": note, "props": JSONValue.object(props).object]
         case .splitTable: ["action": "splitTable"]
         case .attachNextTable: ["action": "attachNextTable"]
         }
@@ -365,6 +376,10 @@ enum EditQuery: Codable, Sendable {
     case columns
     /// `{"sections":[html…]}`: each section as an HTML fragment, for export.
     case documentHtml
+    /// `{"found":false}` or the note whose marker is at the caret: `kind`, `number`, `text`.
+    case noteAtCaret
+    /// `numberFormat`, `prefixChar`, `suffixChar`, `startNumber`, `numbering`, `placement`, …
+    case noteShape(String)
     /// `{"controls":[{"type","x","y","w","h","secIdx","paraIdx","controlIdx",…}]}` on a page.
     case pageObjects(page: Int)
     /// A picture's, shape's or table's properties, with `kind` picture, shape or table.
@@ -391,6 +406,8 @@ enum EditQuery: Codable, Sendable {
         case .pageBorder: ["kind": "pageBorder"]
         case .columns: ["kind": "columns"]
         case .documentHtml: ["kind": "documentHtml"]
+        case .noteAtCaret: ["kind": "noteAtCaret"]
+        case let .noteShape(note): ["kind": "noteShape", "note": note]
         case let .pageObjects(page): ["kind": "pageObjects", "page": page]
         case let .objectProperties(object): ["kind": "objectProperties"].merging(object.json) { $1 }
         case .cellProperties: ["kind": "cellProperties"]

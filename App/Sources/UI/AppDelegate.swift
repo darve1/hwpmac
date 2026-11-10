@@ -184,6 +184,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         insertMenu.addItem(withTitle: "하이퍼링크 지우기", action: #selector(PagesView.removeHyperlink(_:)), keyEquivalent: "")
         insertMenu.addItem(withTitle: "책갈피…", action: #selector(PagesView.addBookmark(_:)), keyEquivalent: "")
         insertMenu.addItem(.separator())
+        insertMenu.addItem(withTitle: "각주…", action: #selector(PagesView.insertNote(_:)), keyEquivalent: "").tag = 0
+        insertMenu.addItem(withTitle: "미주…", action: #selector(PagesView.insertNote(_:)), keyEquivalent: "").tag = 1
+        insertMenu.addItem(withTitle: "각주/미주 고치기…", action: #selector(PagesView.editNote(_:)), keyEquivalent: "")
+        insertMenu.addItem(withTitle: "각주/미주 지우기", action: #selector(PagesView.deleteNote(_:)), keyEquivalent: "")
+        insertMenu.addItem(withTitle: "각주 모양…", action: #selector(PagesView.showNoteShape(_:)), keyEquivalent: "").tag = 0
+        insertMenu.addItem(withTitle: "미주 모양…", action: #selector(PagesView.showNoteShape(_:)), keyEquivalent: "").tag = 1
+        insertMenu.addItem(.separator())
         let symbols = insertMenu.addItem(withTitle: "문자표…", action: #selector(PagesView.showSymbols(_:)), keyEquivalent: " ")
         symbols.keyEquivalentModifierMask = [.command, .control]
         addSubmenu(insertMenu, titled: "입력", to: mainMenu)

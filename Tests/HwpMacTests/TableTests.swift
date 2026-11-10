@@ -345,3 +345,45 @@ final class ShapeTests: XCTestCase {
         }
     }
 }
+
+@MainActor
+final class NoteTests: XCTestCase {
+    /// 각주 넣기, 고치기 and typing after the number; the note survives saving in each format.
+    func testFootnoteInsertEditAndSave() throws {
+        let engine = try DocumentEngine(data: Data(), name: "notes")
+        defer { engine.close() }
+        let view = PagesView(engine: engine)
+        view.beginEditingAtStart()
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let edit = NSMenuItem(title: "각주/미주 고치기…", action: #selector(PagesView.editNote(_:)), keyEquivalent: "")
+        XCTAssertFalse(view.validateMenuItem(edit))
+        _ = engine.submit(.action(.insertNote(kind: "footnote", text: "각주 글")))
+        _ = try engine.sync { _ in }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(view.validateMenuItem(edit))
+        XCTAssertEqual(try engine.query(.noteAtCaret)["text"]?.string, "각주 글")
+        _ = engine.submit(.action(.setNoteText("고친 각주")))
+        view.insertText("본문", replacementRange: NSRange(location: NSNotFound, length: 0))
+        _ = try engine.sync { _ in }
+        // The number takes one place in the paragraph; the text typed after it follows it.
+        let typed = try engine.sync { editor -> String in
+            let at = { TextPosition(section: 0, paragraph: 0, scalarOffset: $0) }
+            try editor.select(TextSelection(anchor: at(1), focus: at(3)))
+            return try editor.copy()
+        }
+        XCTAssertEqual(typed, "본문")
+
+        for format in [SaveFormat.hwp, .hwpx] {
+            let prepared = try engine.prepareSave(format)
+            try engine.cancelSave(prepared.token)
+            XCTAssertEqual(prepared.report?.losses.count ?? 0, 0, "\(format)")
+            let reopened = try DocumentEngine(data: prepared.data, name: "reopened")
+            defer { reopened.close() }
+            _ = try reopened.sync { try $0.select(.collapsed(at: TextPosition(section: 0, paragraph: 0, scalarOffset: 1))) }
+            let note = try reopened.query(.noteAtCaret)
+            XCTAssertEqual(note["kind"]?.string, "footnote", "\(format)")
+            XCTAssertEqual(note["text"]?.string, "고친 각주", "\(format)")
+        }
+    }
+}

@@ -927,6 +927,135 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
         submit(.action(.setObjectProperties(address, changed)))
     }
 
+    // MARK: Footnotes and endnotes
+
+    private var noteAtCaret: JSONValue {
+        guard inBody, !hasSelection, let note = try? engine.query(.noteAtCaret), note["found"]?.bool == true else { return .null }
+        return note
+    }
+
+    /// 각주… / 미주…: the menu item's tag picks the kind (0 footnote, 1 endnote).
+    @objc func insertNote(_ sender: NSMenuItem) {
+        guard let window, inBody, !hasSelection else { return NSSound.beep() }
+        commitInput()
+        let kind = sender.tag == 1 ? "endnote" : "footnote"
+        Self.presentNoteText(title: kind == "footnote" ? "각주 넣기" : "미주 넣기", text: "", in: window) { [weak self] text in
+            self?.submit(.action(.insertNote(kind: kind, text: text)))
+        }
+    }
+
+    /// 각주/미주 고치기…: the note whose number is right at the caret.
+    @objc func editNote(_ sender: Any?) {
+        guard let window else { return NSSound.beep() }
+        commitInput()
+        let note = noteAtCaret
+        guard let text = note["text"]?.string else {
+            onStatus?("캐럿을 각주·미주 번호 바로 뒤에 두세요.")
+            return NSSound.beep()
+        }
+        let number = note["number"]?.number.map { " \(Int($0))" } ?? ""
+        let title = (note["kind"]?.string == "endnote" ? "미주" : "각주") + number + " 고치기"
+        Self.presentNoteText(title: title, text: text, in: window) { [weak self] changed in
+            if changed != text { self?.submit(.action(.setNoteText(changed))) }
+        }
+    }
+
+    @objc func deleteNote(_ sender: Any?) {
+        guard noteAtCaret != .null else { return NSSound.beep() }
+        commitInput()
+        submit(.action(.deleteNote))
+    }
+
+    /// 번호 모양 names the engine takes, with what 한글 shows for them.
+    static let noteNumberFormats: [(name: String, title: String)] = [
+        ("digit", "1, 2, 3"), ("circledDigit", "①, ②, ③"), ("upperRoman", "I, II, III"), ("lowerRoman", "i, ii, iii"),
+        ("upperAlpha", "A, B, C"), ("lowerAlpha", "a, b, c"), ("hangulSyllable", "가, 나, 다"),
+        ("hangulJamo", "ㄱ, ㄴ, ㄷ"), ("hanjaDigit", "一, 二, 三"),
+    ]
+
+    /// 각주 모양… / 미주 모양…: the menu item's tag picks the kind (0 footnote, 1 endnote).
+    @objc func showNoteShape(_ sender: NSMenuItem) {
+        guard let window, snapshot.selection != nil else { return NSSound.beep() }
+        commitInput()
+        let note = sender.tag == 1 ? "endnote" : "footnote"
+        let current = (try? engine.query(.noteShape(note))) ?? .null
+        let format = NSPopUpButton()
+        format.addItems(withTitles: Self.noteNumberFormats.map(\.title))
+        format.selectItem(at: Self.noteNumberFormats.firstIndex { $0.name == current["numberFormat"]?.string } ?? 0)
+        let prefix = NSTextField(string: current["prefixChar"]?.string ?? "")
+        let suffix = NSTextField(string: current["suffixChar"]?.string ?? "")
+        let start = NSTextField(string: String(Int(current["startNumber"]?.number ?? 1)))
+        for field in [prefix, suffix, start] { field.widthAnchor.constraint(equalToConstant: 50).isActive = true }
+        let numbering = NSPopUpButton()
+        let numberings: [(String, String)] = note == "footnote"
+            ? [("continue", "앞 구역에 이어서"), ("restartSection", "구역마다 새로"), ("restartPage", "쪽마다 새로")]
+            : [("continue", "앞 구역에 이어서"), ("restartSection", "구역마다 새로")]
+        numbering.addItems(withTitles: numberings.map(\.1))
+        numbering.selectItem(at: numberings.firstIndex { $0.0 == current["numbering"]?.string } ?? 0)
+        let placement = NSPopUpButton()
+        let placements: [(String, String)] = note == "footnote"
+            ? [("eachColumn", "각 단 아래"), ("mergedColumn", "본문 아래"), ("rightColumn", "오른쪽 단 아래")]
+            : [("documentEnd", "문서의 끝"), ("sectionEnd", "구역의 끝")]
+        placement.addItems(withTitles: placements.map(\.1))
+        placement.selectItem(at: placements.firstIndex { $0.0 == current["placement"]?.string } ?? 0)
+        let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "번호 모양:"), format],
+            [NSTextField(labelWithString: "앞 장식 문자:"), prefix],
+            [NSTextField(labelWithString: "뒤 장식 문자:"), suffix],
+            [NSTextField(labelWithString: "시작 번호:"), start],
+            [NSTextField(labelWithString: "번호 매기기:"), numbering],
+            [NSTextField(labelWithString: "위치:"), placement],
+        ])
+        grid.column(at: 0).xPlacement = .trailing
+        grid.frame = NSRect(x: 0, y: 0, width: 300, height: 180)
+        let alert = NSAlert()
+        alert.messageText = note == "footnote" ? "각주 모양" : "미주 모양"
+        alert.informativeText = "캐럿이 있는 구역의 모든 \(note == "footnote" ? "각주" : "미주")에 적용됩니다."
+        alert.accessoryView = grid
+        alert.addButton(withTitle: "설정")
+        alert.addButton(withTitle: "취소")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            guard let number = Int(start.stringValue.trimmingCharacters(in: .whitespaces)), (1...65535).contains(number) else {
+                self?.onStatus?("시작 번호는 1~65535입니다.")
+                return NSSound.beep()
+            }
+            let props: [String: JSONValue] = [
+                "numberFormat": .string(Self.noteNumberFormats[max(format.indexOfSelectedItem, 0)].name),
+                "prefixChar": .string(String(prefix.stringValue.prefix(1))),
+                "suffixChar": .string(String(suffix.stringValue.prefix(1))),
+                "startNumber": .number(Double(number)),
+                "numbering": .string(numberings[max(numbering.indexOfSelectedItem, 0)].0),
+                "placement": .string(placements[max(placement.indexOfSelectedItem, 0)].0),
+            ]
+            self?.submit(.action(.setNoteShape(note: note, props: props)))
+        }
+    }
+
+    private static func presentNoteText(title: String, text: String, in window: NSWindow, done: @escaping (String) -> Void) {
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 360, height: 120))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        let textView = NSTextView(frame: scroll.bounds)
+        textView.isRichText = false
+        textView.autoresizingMask = [.width]
+        textView.string = text
+        scroll.documentView = textView
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = "각주·미주의 글자입니다. 줄을 바꾸면 문단이 나뉩니다."
+        alert.accessoryView = scroll
+        alert.addButton(withTitle: "확인")
+        alert.addButton(withTitle: "취소")
+        alert.window.initialFirstResponder = textView
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            // Paragraph breaks stay; tabs and other control characters are dropped, as in 머리말.
+            let text = textView.string.replacingOccurrences(of: "\r\n", with: "\n")
+            done(String(text.filter { $0 == "\n" || $0.unicodeScalars.first?.properties.generalCategory != .control }))
+        }
+    }
+
     // MARK: Links, bookmarks, symbols
 
     /// 하이퍼링크…: a link on the selection, or the address of the link at the caret.
@@ -1557,6 +1686,12 @@ final class PagesView: NSView, @MainActor NSTextInputClient, NSMenuItemValidatio
             return snapshot.selection != nil
         case #selector(addBookmark(_:)):
             return inBody
+        case #selector(insertNote(_:)):
+            return inBody && !hasSelection
+        case #selector(editNote(_:)), #selector(deleteNote(_:)):
+            return noteAtCaret != .null
+        case #selector(showNoteShape(_:)):
+            return snapshot.selection != nil
         case #selector(applyStyle(_:)), #selector(increaseOutlineLevel(_:)), #selector(decreaseOutlineLevel(_:)):
             return snapshot.selection != nil
         case #selector(toggleParagraphMarks(_:)):

@@ -130,7 +130,9 @@
 | insert:shape | 됨 | 입력 → 도형: 사각형, 타원, 직선(30×20mm, 캐럿 자리에 글 앞으로). 고르기·지우기·순서 바꾸기 됨 |
 | insert:textbox | 부분 | 빈 글상자를 넣을 수 있지만 안의 글자는 아직 고치지 못합니다. |
 | insert:equation, chart-data-edit, equation-edit | 아직 | |
-| insert:footnote, endnote, note-close, endnote-shape | 아직 | 각주·미주 |
+| insert:footnote, insert:endnote | 됨 | 입력 → 각주…/미주…: 캐럿 자리에 번호를 넣고 대화상자에서 글자(여러 줄은 문단)를 씁니다. 번호 바로 뒤에서 각주/미주 고치기…·지우기. 번호는 문단에서 한 자리를 차지합니다. |
+| insert:note-close | 아직 | 쪽 위 각주 편집 모드용(이 앱은 대화상자로 고칩니다) |
+| insert:endnote-shape | 됨 | 입력 → 미주 모양…(각주 모양…도): 번호 모양, 앞·뒤 장식 문자, 시작 번호, 번호 매기기, 위치. 캐럿이 있는 구역에 적용 |
 | insert:field | 아직 | 누름틀 |
 | insert:caption-toggle | 부분 | 개체 → 캡션 넣기/빼기(그림·도형): 아래쪽 "그림 N" 캡션, 폭 30mm·간격 3mm(웹 편집기 기본값). 캡션 글자는 아직 고치지 못합니다. |
 | insert:group-shapes, ungroup-shapes | 됨 | 개체를 고른 뒤 Shift-클릭으로 더 고르고 개체 → 개체 묶기. 묶음을 고르고 개체 풀기(한 단계) |
